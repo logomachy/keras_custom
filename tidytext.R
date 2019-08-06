@@ -27,4 +27,5 @@ DATA %>%
   sample_n(1) -> sample_data
 sample_data %>%
   ungroup() %>%
-  tidytext::unnest_tokens(output = word, text) %>% view()
+  tidytext::unnest_tokens(output = word, text) 
+#------------
