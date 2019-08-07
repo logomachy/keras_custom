@@ -168,8 +168,6 @@ for (word in names(word_index)) {
 }
 #-------------------------------------
 #######################################################################
-
-######################################################################
 layer_input(shape = list(NULL),
             name = "words") -> layer_words
 
@@ -184,26 +182,26 @@ layer_words %>%
   layer_dense(units = 64 , name = "first_dense_unit", use_bias = F) %>%
   layer_batch_normalization() %>%
   layer_activation_leaky_relu() %>%
-  layer_dropout(0.4) -> layer_base
+  layer_dropout(0.4) %>%
+  layer_dense(units = 5) -> output
 
-layer_business <- layer_base %>%
-  layer_dense(units = 1, activation = "sigmoid", name = "business")
-
-layer_entertainment <- layer_base %>%
-  layer_dense(units = 1, activation = "sigmoid", name = "entertainment")
-
-layer_politics <- layer_base %>%
-  layer_dense(units = 1, activation = "sigmoid", name = "politics")
-
-layer_sport <- layer_base %>%
-  layer_dense(units = 1, activation = "sigmoid", name = "sport")
-
-layer_tech <- layer_base %>%
-  layer_dense(units = 1, activation = "sigmoid", name = "tech")
+# layer_business <- layer_base %>%
+#   layer_dense(units = 1, activation = "sigmoid", name = "business")
+# 
+# layer_entertainment <- layer_base %>%
+#   layer_dense(units = 1, activation = "sigmoid", name = "entertainment")
+# 
+# layer_politics <- layer_base %>%
+#   layer_dense(units = 1, activation = "sigmoid", name = "politics")
+# 
+# layer_sport <- layer_base %>%
+#   layer_dense(units = 1, activation = "sigmoid", name = "sport")
+# 
+# layer_tech <- layer_base %>%
+#   layer_dense(units = 1, activation = "sigmoid", name = "tech")
 
 model <- keras_model(inputs = layer_words,
-                     outputs = list(layer_business, layer_entertainment, layer_politics,
-                                    layer_sport, layer_tech))
+                     outputs = output )
 
 get_layer(model, name =  "embedding" ) %>%
   set_weights(list(embedding_matrix)) %>%
@@ -213,13 +211,14 @@ summary(model)
 
 model %>% compile(
   optimizer = optimizer_adam(),
-  loss =  list(
-    business = "binary_crossentropy",
-    entertainment = "binary_crossentropy",
-    politics = "binary_crossentropy",
-    sport = "binary_crossentropy",
-    tech = "binary_crossentropy"
-  ), 
+  # loss =  list(
+  #   business = "binary_crossentropy",
+  #   entertainment = "binary_crossentropy",
+  #   politics = "binary_crossentropy",
+  #   sport = "binary_crossentropy",
+  #   tech = "binary_crossentropy"
+  # ), 
+  loss = "categorical_crossentropy",
   metrics = c("acc")
 )
 
@@ -264,11 +263,8 @@ for (f in sort(unique(dane$fold)) ) {
     fit(
       verbose = 1,
       x = train_X ,
-      y = list(train_target[,1], train_target[,2], train_target[,3], 
-               train_target[,4], train_target[,5]),
-      validation_data = list(valid_X ,
-                             list(valid_target[,1], valid_target[,2], valid_target[,3],
-                                  valid_target[,4], valid_target[,5])),
+      y = train_target,
+      validation_data = list(valid_X , valid_target),
       epochs = 10, 
       batch_size = 32 ) -> history
   
@@ -285,7 +281,7 @@ for (f in sort(unique(dane$fold)) ) {
   progress$tick()$print()
 }
 
-
+model
 
 
 plot(history)
