@@ -181,7 +181,7 @@ layer_words %>%
   #layer_batch_normalization() %>%
   #layer_activation_leaky_relu() %>%
   #layer_dropout(0.4) %>%
-  layer_dense(units = 64 , name = "second_dense_unit", use_bias = F) %>%
+  layer_dense(units = 64 , name = "first_dense_unit", use_bias = F) %>%
   layer_batch_normalization() %>%
   layer_activation_leaky_relu() %>%
   layer_dropout(0.4) -> layer_base
