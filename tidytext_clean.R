@@ -29,7 +29,8 @@ DATA %>%
   group_by(category) %>%
   sample_n(1) -> sample_data
 ##############
-preprocess <- function(DATA, variable = "main") {
+preprocess <- function(DATA,
+                       variable = "main") {
 ################
 # HELPER FUNCTIONS
   remove_and_split <- function(DATA, ...) {
@@ -88,21 +89,136 @@ tokenize_text <- function(zbior,
     fit_text_tokenizer(zbior$data)
   
   sekwencja <- texts_to_sequences(tokenizer, zbior$data )
-  word_index <- tokenizer$word_index
+  word_index <<- tokenizer$word_index
   cat("##################\n")
   cat("Found", length(word_index), "unique tokens.\n")
   cat("##################\n")
   data <- pad_sequences(sekwencja, maxlen = max_len)
-  return(list(data, word_index))
+  #----------------------
+  as.integer(as.factor(zbior$category)) -> target
+  {target - 1 } %>% to_categorical(num_classes = unique(DATA$category) %>% length()) -> target
+  #cat()
+  return(list(X = data, Y= target, WORD_INDEX =  word_index))
 }
 #############
 DATA %>% 
-  preprocess() %>%
+  preprocess( variable = "main") %>%
   tokenize_text() -> elo
+#------------
+DATA %>% 
+  preprocess( variable = "header") -> tmp
+
+tmp -> zbior
+#-----------
+
+
 ####################
 # LOADING EMB
 ###################
+list.files(getwd() %>% str_sub(end = -4))
+lines <- readLines("glove.6B.300d.txt")
+#-----------------------------------
+embeddings_index<- new.env(hash = T,
+                           parent = emptyenv() )
+cat("Loading embedding... \n")
+p <- progress_estimated(length(lines))
+options(expressions = 5e5)
+for (i in 1:length(lines)) {
+  line <- lines[[i]]
+  values <- strsplit(line, " ")[[1]]
+  word <- values[[1]]
+  embeddings_index[[word]] <- as.double(values[-1])
+  p$tick()$print()
+}
+cat("Found", length(embeddings_index), "word vectors.\n")
+########################################################################
+#----------------------------------
+max_words = 10000
+emdedding_dim <- 300
+max_len <- 100
+#---------------------------------
+embedding_matrix <- array(0, c(max_words, emdedding_dim))
+q <- progress_estimated(length(names(word_index)))
+cat("Filling up the embedding matrix...\n")
+for (word in names(word_index)) {
+  index <- word_index[[word]]
+  if (index < max_words) {
+    embedding_vector <- embeddings_index[[word]]
+    if (!is.null(embedding_vector))
+      embedding_matrix[index+1,] <- embedding_vector
+  }
+  q$tick()$print()
+}
+#-------------------------------------
+#######################################################################
+#folds <- caret::createFolds(y = DATA$category , k = 5, list = F ) 
+######################################################################
+layer_input(shape = list(NULL),
+            name = "words") -> layer_words
+
+layer_words %>%
+  layer_embedding(input_dim = max_words, output_dim = emdedding_dim, 
+                  input_length = max_len, name = "embedding") %>%
+  bidirectional( layer_lstm(units = 64, dropout = 0.2) ) %>%
+  layer_dense(units = 32 , name = "first_dense_unit", use_bias = F) %>%
+  layer_batch_normalization() %>%
+  layer_activation_leaky_relu() %>%
+  layer_dropout(0.2) %>%
+  layer_dense(units = 32 , name = "second_dense_unit", use_bias = F) %>%
+  layer_batch_normalization() %>%
+  layer_activation_leaky_relu() %>%
+  layer_dropout(0.2) -> layer_base
+
+layer_business <- layer_base %>%
+  layer_dense(units = 1, activation = "sigmoid", name = "business")
+
+layer_entertainment <- layer_base %>%
+  layer_dense(units = 1, activation = "sigmoid", name = "entertainment")
+
+layer_politics <- layer_base %>%
+  layer_dense(units = 1, activation = "sigmoid", name = "politics")
+
+layer_sport <- layer_base %>%
+  layer_dense(units = 1, activation = "sigmoid", name = "sport")
+
+layer_tech <- layer_base %>%
+  layer_dense(units = 1, activation = "sigmoid", name = "tech")
+
+model <- keras_model(inputs = layer_words,
+                     outputs = list(layer_business, layer_entertainment, layer_politics,
+                                    layer_sport, layer_tech))
+
+get_layer(model, name =  "embedding" ) %>%
+  set_weights(list(embedding_matrix)) %>%
+  freeze_weights()
+
+summary(model)
+
+model %>% compile(
+  optimizer = optimizer_adam(),
+  loss =  list(
+    business = "binary_crossentropy",
+    entertainment = "binary_crossentropy",
+    politics = "binary_crossentropy",
+    sport = "binary_crossentropy",
+    tech = "binary_crossentropy"
+  ), 
+  metrics = c("acc")
+)
+
+elo[[1]] -> x_train
+elo[[2]] -> y_train
 
 
 
+model %>%
+  fit(
+    verbose = 1,
+    x = x_train ,
+    y = list(y_train[,1], y_train[,2], y_train[,3], 
+             y_train[,4], y_train[,5]), 
+    epochs = 10, validation_split = 0.3,
+    batch_size = 32 ) -> history
+
+plot(history)
 
