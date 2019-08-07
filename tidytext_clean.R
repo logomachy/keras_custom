@@ -21,9 +21,9 @@ data_load <- function(i, ...) {
     return(.)
 }
 lapply(1:length(categories), function(i) data_load(i) )  %>% bind_rows() -> DATA
-caret::createDataPartition(DATA$category, p = 0.8, list = F) -> in_train 
-DATA %<>% mutate(in_train = ifelse(name %in% in_train, T, F))
-DATA %<>% mutate(text = map_chr(text, unlist )) 
+#caret::createDataPartition(DATA$category, p = 0.8, list = F) -> in_train 
+#DATA %<>% mutate(in_train = ifelse(name %in% in_train, T, F))
+#DATA %<>% mutate(text = map_chr(text, unlist )) 
 ###############
 DATA %>%
   group_by(category) %>%
@@ -72,6 +72,8 @@ preprocess <- function(DATA,
       return(.)
   }
 ################
+  folds <- caret::createFolds(y = DATA$category , k = 5, list = F ) 
+  
   DATA %>% 
     remove_and_split() %>%
     rownames_to_column("id") %>% 
@@ -95,6 +97,8 @@ tokenize_text <- function(zbior,
   cat("##################\n")
   data <- pad_sequences(sekwencja, maxlen = max_len)
   #----------------------
+
+  #--------------------__
   as.integer(as.factor(zbior$category)) -> target
   {target - 1 } %>% to_categorical(num_classes = unique(DATA$category) %>% length()) -> target
   #cat()
@@ -109,14 +113,12 @@ DATA %>%
   preprocess( variable = "header") -> tmp
 
 tmp -> zbior
-#-----------
-
-
 ####################
 # LOADING EMB
 ###################
 list.files(getwd() %>% str_sub(end = -4))
-lines <- readLines("glove.6B.300d.txt")
+setwd("..")
+lines <- readLines("glove.42B.300d.txt")
 #-----------------------------------
 embeddings_index<- new.env(hash = T,
                            parent = emptyenv() )
@@ -133,9 +135,9 @@ for (i in 1:length(lines)) {
 cat("Found", length(embeddings_index), "word vectors.\n")
 ########################################################################
 #----------------------------------
-max_words = 10000
+max_words = 20e3
 emdedding_dim <- 300
-max_len <- 100
+max_len <- 300
 #---------------------------------
 embedding_matrix <- array(0, c(max_words, emdedding_dim))
 q <- progress_estimated(length(names(word_index)))
@@ -151,7 +153,7 @@ for (word in names(word_index)) {
 }
 #-------------------------------------
 #######################################################################
-#folds <- caret::createFolds(y = DATA$category , k = 5, list = F ) 
+
 ######################################################################
 layer_input(shape = list(NULL),
             name = "words") -> layer_words
@@ -159,15 +161,15 @@ layer_input(shape = list(NULL),
 layer_words %>%
   layer_embedding(input_dim = max_words, output_dim = emdedding_dim, 
                   input_length = max_len, name = "embedding") %>%
-  bidirectional( layer_lstm(units = 64, dropout = 0.2) ) %>%
-  layer_dense(units = 32 , name = "first_dense_unit", use_bias = F) %>%
+  bidirectional( layer_lstm(units = 128, dropout = 0.4, recurrent_dropout = 0.3) ) %>%
+  #layer_dense(units = 128 , name = "first_dense_unit", use_bias = F) %>%
+  #layer_batch_normalization() %>%
+  #layer_activation_leaky_relu() %>%
+  #layer_dropout(0.4) %>%
+  layer_dense(units = 64 , name = "second_dense_unit", use_bias = F) %>%
   layer_batch_normalization() %>%
   layer_activation_leaky_relu() %>%
-  layer_dropout(0.2) %>%
-  layer_dense(units = 32 , name = "second_dense_unit", use_bias = F) %>%
-  layer_batch_normalization() %>%
-  layer_activation_leaky_relu() %>%
-  layer_dropout(0.2) -> layer_base
+  layer_dropout(0.4) -> layer_base
 
 layer_business <- layer_base %>%
   layer_dense(units = 1, activation = "sigmoid", name = "business")
@@ -211,13 +213,15 @@ elo[[2]] -> y_train
 
 
 
+
+
 model %>%
   fit(
     verbose = 1,
     x = x_train ,
     y = list(y_train[,1], y_train[,2], y_train[,3], 
              y_train[,4], y_train[,5]), 
-    epochs = 10, validation_split = 0.3,
+    epochs = 10, #validation_split = 0.3,
     batch_size = 32 ) -> history
 
 plot(history)
