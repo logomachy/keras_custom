@@ -30,7 +30,7 @@ DATA %>%
   sample_n(1) -> sample_data
 ##############
 preprocess <- function(DATA,
-                       variable = "main") {
+                       variable = "main", no_folds = 10) {
 ################
 # HELPER FUNCTIONS
   remove_and_split <- function(DATA, ...) {
@@ -72,15 +72,16 @@ preprocess <- function(DATA,
       return(.)
   }
 ################
-  folds <- caret::createFolds(y = DATA$category , k = 5, list = F ) 
+  folds <- caret::createFolds(y = DATA$category , k = no_folds, list = F ) 
   
   DATA %>% 
     remove_and_split() %>%
     rownames_to_column("id") %>% 
     select(-name, -value, -path) %>% 
     unnest_variable(variable) %>% 
-    nest(-id, -category, -in_train) %>% 
+    nest(-id, -category) %>% 
     mutate(data = map_chr( data, collapse_word) ) %>%
+    mutate(fold = folds) %>%
     return(.)
 }
 tokenize_text <- function(zbior, 
@@ -97,12 +98,26 @@ tokenize_text <- function(zbior,
   cat("##################\n")
   data <- pad_sequences(sekwencja, maxlen = max_len)
   #----------------------
-
+  onehot_represenation <- function(jolo) {
+    jolo %>% as_tibble() %>% select_if(is.factor) -> factor_var
+    if (ncol(factor_var) != 0) {
+      factor_var %>% onehot::onehot() -> onehot_map
+      predict(onehot_map, 
+              jolo %>% as_tibble() %>% select_if(is.factor) )  -> onehot_data
+      
+      onehot_data %<>% apply(2, as.integer) %>% as_tibble() 
+      
+      jolo %>% as_tibble() %>% select_if(negate(is.factor)) %>% 
+        bind_cols(onehot_data) -> jolo
+    }
+  }
+  #-----------------------
+  as.tibble(data) %>%
+    mutate(fold = zbior$fold) %>%
+    mutate(target = as.factor(zbior$category)) %>% onehot_represenation() -> tibb
   #--------------------__
-  as.integer(as.factor(zbior$category)) -> target
-  {target - 1 } %>% to_categorical(num_classes = unique(DATA$category) %>% length()) -> target
   #cat()
-  return(list(X = data, Y= target, WORD_INDEX =  word_index))
+  return(list(DATA = tibb, WORD_INDEX =  word_index))
 }
 #############
 DATA %>% 
@@ -116,9 +131,9 @@ tmp -> zbior
 ####################
 # LOADING EMB
 ###################
-list.files(getwd() %>% str_sub(end = -4))
+#list.files(getwd() %>% str_sub(end = -4))
 setwd("..")
-lines <- readLines("glove.42B.300d.txt")
+lines <- readLines("glove.6B.300d.txt")
 #-----------------------------------
 embeddings_index<- new.env(hash = T,
                            parent = emptyenv() )
@@ -135,9 +150,9 @@ for (i in 1:length(lines)) {
 cat("Found", length(embeddings_index), "word vectors.\n")
 ########################################################################
 #----------------------------------
-max_words = 20e3
+max_words = 1e4
 emdedding_dim <- 300
-max_len <- 300
+max_len <- 100
 #---------------------------------
 embedding_matrix <- array(0, c(max_words, emdedding_dim))
 q <- progress_estimated(length(names(word_index)))
@@ -213,16 +228,72 @@ elo[[2]] -> y_train
 
 
 
+elo$DATA -> dane
+progress <- progress_estimated((unique(dane$fold) %>% max()))
+list() -> accuracy_list
+list() -> plot_list
+for (f in sort(unique(dane$fold)) ) {
+  cat("#################################### \n")
+  cat("\n Fold: ", f, "\n")
+  
+  dane %>%
+    filter(fold != f ) %>%
+    select(-fold) -> train_data
+  
+  dane %>%
+    filter(fold == f ) %>%
+    select(-fold) -> valid_data
+  
+  train_data %>%
+    select(contains("target")) %>%
+    data.matrix() -> train_target
+  
+  train_data %>%
+    select(-one_of(train_target %>% colnames())) %>%
+    data.matrix() -> train_X
+
+  valid_data %>%
+    select(contains("target")) %>%
+    data.matrix() -> valid_target
+  
+  valid_data %>%
+    select(-one_of(train_target %>% colnames())) %>%
+    data.matrix() -> valid_X
+
+  model %>%
+    fit(
+      verbose = 1,
+      x = train_X ,
+      y = list(train_target[,1], train_target[,2], train_target[,3], 
+               train_target[,4], train_target[,5]),
+      validation_data = list(valid_X ,
+                             list(valid_target[,1], valid_target[,2], valid_target[,3],
+                                  valid_target[,4], valid_target[,5])),
+      epochs = 10, 
+      batch_size = 32 ) -> history
+  
+  history$metrics %>%
+    as.tibble() %>% tail(1) %>% 
+    select(contains("acc")) %>% 
+    select(contains("val")) %>%
+    mutate(fold = f) -> accuracy_list[[f]]
+  
+  plot(history) -> plot_list[[f]]
+  cat("#################################### \n")
+  accuracy_list[[f]] %>% print()
+  cat("#################################### \n")
+  progress$tick()$print()
+}
 
 
-model %>%
-  fit(
-    verbose = 1,
-    x = x_train ,
-    y = list(y_train[,1], y_train[,2], y_train[,3], 
-             y_train[,4], y_train[,5]), 
-    epochs = 10, #validation_split = 0.3,
-    batch_size = 32 ) -> history
+
 
 plot(history)
+
+
+#################
+as.integer(as.factor(zbior$category)) -> target
+{target - 1 } %>% to_categorical(num_classes = unique(DATA$category) %>% length()) -> target
+
+
 
