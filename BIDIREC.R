@@ -1,11 +1,12 @@
 library(tidyverse)
+library(data.table)
 library(tidytext)
 library(stringr)
 library(tibble)
 library(magrittr)
 library(rebus)
 library(keras)
-library(tensorflow)
+#library(tensorflow)
 #-----------
 setwd("bbc/")
 #-------------
@@ -77,6 +78,7 @@ preprocess <- function(DATA,
     rownames_to_column("id") %>%
     select(-name, -value, -path) %>%
     unnest_variable(variable) %>%
+    #filter(stringr::str_length( word) >= 2)  %>%
     nest(-id, -category) %>%
     mutate(data = map_chr( data, collapse_word) ) %>%
     mutate(fold = folds) %>%
@@ -100,7 +102,7 @@ tokenize_text <- function(zbior,
                           max_words = 3e4, is_test = F, ...){
   if(is_test == F) {
     tokenizer <<- text_tokenizer(num_words = max_words,
-                                 filters = "!\"#%&()$*+,-./:;<=>?@[\\]^_`{|}~\t\n") %>%
+                                 filters = "!\"#%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n") %>%
       fit_text_tokenizer(zbior$data)
     
     sekwencja <- texts_to_sequences(tokenizer, zbior$data )
@@ -132,6 +134,7 @@ embeddings_index <- new.env(hash = T,
                             parent = emptyenv() )
 cat("Loading embedding... \n")
 p <- progress_estimated(length(lines))
+###############################
 options(expressions = 5e5)
 for (i in 1:length(lines)) {
   line <- lines[[i]]
@@ -155,72 +158,12 @@ for (word in names(word_index)) {
   if (index < max_words) {
     embedding_vector <- embeddings_index[[word]]
     if (!is.null(embedding_vector))
-      embedding_matrix[index+1,] <- embedding_vector
+      embedding_matrix[index+1,] <- embedding_vector # not found words will be ALL zero
   }
   q$tick()$print()
 }
-#####################################################
-#MODEL ARCHITECTURE
-#####################################################
-layer_input(shape = list(NULL),
-            name = "words") -> layer_words
 
-layer_words %>%
-  layer_embedding(input_dim = max_words, output_dim = emdedding_dim, 
-                  input_length = max_len, name = "embedding") %>%
-  #bidirectional( layer_lstm(units = 128) ) %>%
-  bidirectional(layer_gru(units = 64,
-                          dropout = 0.1,
-                          recurrent_dropout = 0.3,
-                          return_sequences = TRUE), name = "bidirectional_gru") %>%
-  layer_gru(units = 64, activation = "relu",
-            dropout = 0.1,
-            recurrent_dropout = 0.3) %>%
-  # layer_flatten() %>%
-  layer_dense(units = 64 , name = "first_dense_unit", use_bias = F) %>%
-  layer_batch_normalization() %>%
-  layer_activation_leaky_relu() %>%
-  #layer_dropout(0.4) %>%
-  layer_dense(units = 32 , name = "2_dense_unit", use_bias = F) %>%
-  layer_batch_normalization() %>%
-  layer_activation_leaky_relu() %>%
-  #layer_dropout(0.1) %>%
-  layer_dense(units = 5, activation = "softmax") -> output
 
-model <- keras_model(inputs = layer_words,
-                     outputs = output )
-
-get_layer(model, name =  "embedding" ) %>%
-  set_weights(list(embedding_matrix)) %>%
-  freeze_weights()
-
-summary(model)
-deepviz::plot_model(model)
-model %>% compile(
-  optimizer = optimizer_adam(),
-  loss = "categorical_crossentropy",
-  metrics = c("acc")
-)
-################################
-callback <- list(
-  callback_early_stopping(
-    monitor = "val_acc",
-    patience = 2,
-    restore_best_weights = T
-  ),
-  callback_model_checkpoint(
-    filepath = "my_model.h5",
-    monitor = "val_acc",
-    save_best_only = TRUE
-  ),
-  callback_reduce_lr_on_plateau(
-    monitor = "val_acc",
-    factor = 0.1,
-    patience = 1 ,
-    cooldown = 1,
-    verbose = 1
-  )
-)
 ##################################
 #TRAINING
 ##################################
@@ -230,29 +173,80 @@ train_cross_validate <- function(dane, model, callback, ... ) {
   list() -> plot_list
   list() -> history_list
   for (f in sort(unique(dane$fold)) ) {
-    # callback <- list(
-    #   callback_early_stopping(
-    #     monitor = "val_acc",
-    #     patience = 3
-    #   ),
-    #   callback_model_checkpoint(
-    #     filepath = paste0("cv_", f,"_my_model.h5"),
-    #     monitor = "val_acc",
-    #     save_best_only = TRUE
-    #   ),
-    #   callback_reduce_lr_on_plateau(
-    #     monitor = "val_acc",
-    #     factor = 0.1,
-    #     patience = 1 ,
-    #     cooldown = 0,
-    #     verbose = 1
-    #   )
-    # )
+    #####################################################
+    #MODEL ARCHITECTURE
+    #####################################################
+    layer_input(shape = list(NULL),
+                name = "words") -> layer_words
     
+    layer_words %>%
+      layer_embedding(input_dim = max_words, output_dim = emdedding_dim, 
+                      input_length = max_len, name = "embedding") %>%
+      #bidirectional( layer_lstm(units = 128) ) %>%
+      bidirectional(layer_gru(units = 64,
+                              dropout = 0.1,
+                              recurrent_dropout = 0.3,
+                              return_sequences = TRUE), name = "bidirectional_gru") %>%
+      layer_gru(units = 64, activation = "relu",
+                dropout = 0.1,
+                recurrent_dropout = 0.3) %>%
+      # layer_flatten() %>%
+      layer_dense(units = 64 , name = "first_dense_unit", use_bias = F) %>%
+      layer_batch_normalization() %>%
+      layer_activation_leaky_relu() %>%
+      #layer_dropout(0.4) %>%
+      layer_dense(units = 32 , name = "2_dense_unit", use_bias = F) %>%
+      layer_batch_normalization() %>%
+      layer_activation_leaky_relu() %>%
+      #layer_dropout(0.1) %>%
+      layer_dense(units = 5, activation = "softmax") -> output
     
+    model <- keras_model(inputs = layer_words,
+                         outputs = output )
+    
+    get_layer(model, name =  "embedding" ) %>%
+      set_weights(list(embedding_matrix)) %>%
+      freeze_weights()
+    
+    summary(model)
+    deepviz::plot_model(model)
+    model %>% compile(
+      optimizer = optimizer_adam(),
+      loss = "categorical_crossentropy",
+      metrics = c("acc")
+    )
+    ################################
+    callback <- list(
+      callback_early_stopping(
+        monitor = "val_acc",
+        min_delta = 0.01,
+        patience = 3,
+        restore_best_weights = T
+      ),
+      # callback_model_checkpoint(
+      #   filepath = "my_model.h5",
+      #   monitor = "val_acc",
+      #   save_best_only = TRUE
+      # ),
+      callback_reduce_lr_on_plateau(
+        monitor = "val_acc",
+        factor = 0.5,
+        patience = 1 ,
+        cooldown = 1,
+        verbose = 1
+      )
+    )
+    ###################################
     cat("#################################### \n")
     cat("\n Fold: ", f, "\n")
+    #---------------------------------------\
+    f = 1
+    dane %>%
+      filter(fold == f ) %>%
+      select(-fold) -> test_data
     
+    
+    #----------------------------------------
     dane %>%
       filter(fold != f ) %>%
       select(-fold) -> train_data
@@ -284,7 +278,7 @@ train_cross_validate <- function(dane, model, callback, ... ) {
         y = train_target,
         callbacks = callback,
         validation_data = list(valid_X , valid_target),
-        epochs = 15, 
+        epochs = 30, 
         batch_size = 64 ) -> history #val_acc: 0.9708
     
     history$metrics %>%
@@ -299,7 +293,7 @@ train_cross_validate <- function(dane, model, callback, ... ) {
     accuracy_list[[f]] %>% print()
     cat("#################################### \n")
     progress$tick()$print()
-    #k_clear_session()
+    k_clear_session()
     # reset_states(model)
   }
   return(list(
@@ -331,5 +325,74 @@ model_performace(test_tokenized, model)
 ##############################################
 analisis$plots 
 
-analisis$metrics
+analisis$metrics %>% glimpse()
+##############################
+#own embedding
+################################
+library(h2o)
+h2o.init()
+DATA %>%
+  preprocess( variable = "main") %>%
+  as.h2o(destination_frame = "DATA") -> DATA_h2o
 
+DATA_h2o$data %>% h2o.ascharacter() %>% h2o.tokenize( . , "\\\\W+") -> token
+
+h2o.word2vec(token, sent_sample_rate = 0, epochs = 10) -> word_2_vec
+
+print(h2o.findSynonyms(word_2_vec, "man", count = 5))
+# synonym     score
+# 1    hulk 0.5856051
+#################################
+DATA %>%
+  preprocess( variable = "main") %>%
+  unnest_tokens(word, data) %>% 
+  group_by(category) %>%
+  count(word) %>%
+  arrange(desc(n)) %>%
+  #group_by(category) %>%
+  top_n(1000, n) %>%
+  ungroup() -> top
+
+
+vector("list", length = nrow(top)) -> embedding_values
+
+
+for (i in 1:nrow(top)) {
+  
+  embeddings_index[[top$word[[i]]]] -> embedding_values[[i]]
+}
+
+embedding_values[[1]] -> single_embedding
+top[1, ] -> single_name
+
+single_name %>% mutate(single_embedding)
+tibble(single_name, single_embedding )
+
+top %>% select(word, category) %>% rowid_to_column("id") %>%
+
+embedding_values %>% map(as_tibble) %>%
+  map(~prepend(values = as.list(top$word), .x)) %>% reduce(cbind)
+
+embedding_values%>% map(~as.data.table(.x))
+#bind_rows(embedding_values)
+embedding_values %>%
+  sapply(., function(x) t(as.data.table(x) )) %>%
+  rbindlist() %>%
+  as_tibble() %>%
+  bind_cols(category = top %>% select(category, word) ,.) %>%
+  ungroup() -> top_embedding
+
+
+library(Rtsne)
+library(plotly)
+
+tsne_out <- Rtsne(X = as.matrix(top_embedding %>% select(-category, -word) ), dims = 3)
+
+# Prepare a data frame for plotting
+d_tsne <- data.frame(tsne_out$Y, Class = Vehicle$Class)
+colnames(d_tsne) <- c("x", "y", "z", "Class")
+
+# Create a 3D Scatter plot using plotly
+p <- 
+  plot_ly(d_tsne, x = x, y = y, z = z, type = "scatter3d", group = Class, mode = "markers") %>%
+  layout(title = "t-SNE on 'Vehicle'")
