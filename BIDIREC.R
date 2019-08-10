@@ -130,6 +130,43 @@ train_set %>%
 setwd("..")
 lines <- readLines("glove.6B.100d.txt")
 #-----------------------------------
+
+load_embedding <- function(embeddings_index,lines, i ) {
+  line <- lines[[i]]
+  values <- strsplit(line, " ")[[1]]
+  word <- values[[1]]
+  embeddings_index[[word]] <- as.double(values[-1]) 
+  tibble(word = word) %>% bind_cols(as.data.table(as.data.table(as.double(values[-1])) %>% t()) )
+  return()
+}
+
+library(future.apply)
+library(furrr)
+plan(multisession)
+
+length(lines)
+lines %>%
+  future_pmap(~with(list(...),
+                    load_embedding(embeddings_index = embeddings_index,
+                                   lines = lines,
+                                   i) ))
+
+i <- as_li(1:400000)
+lines %>%
+  future_pmap(list(., embeddings_index,i ) , load_embedding)
+#####################################
+options("future.globals.maxSize" = 1000000000)
+list(lines = lines,embeddings_index = embeddings_index , i = i ) %>%
+  future_pmap( . ,
+               ~with(list(...),
+                     load_embedding(embeddings_index = embeddings_index,
+                                    lines = lines,
+                                    i)))
+
+
+
+
+#-----------------------------------
 embeddings_index <- new.env(hash = T,
                             parent = emptyenv() )
 cat("Loading embedding... \n")
