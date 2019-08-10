@@ -240,10 +240,10 @@ train_cross_validate <- function(dane, model, callback, ... ) {
     cat("#################################### \n")
     cat("\n Fold: ", f, "\n")
     #---------------------------------------\
-    f = 1
-    dane %>%
-      filter(fold == f ) %>%
-      select(-fold) -> test_data
+    # f = 1
+    # dane %>%
+    #   filter(fold == f ) %>%
+    #   select(-fold) -> test_data
     
     
     #----------------------------------------
@@ -350,43 +350,123 @@ DATA %>%
   count(word) %>%
   arrange(desc(n)) %>%
   #group_by(category) %>%
-  top_n(1000, n) %>%
+  top_n(200, n) %>%
   ungroup() -> top
 
-
 vector("list", length = nrow(top)) -> embedding_values
-
-
+#vector("list", length = nrow(top)) -> list_tibble
 for (i in 1:nrow(top)) {
-  
-  embeddings_index[[top$word[[i]]]] -> embedding_values[[i]]
+  if(is.null( embeddings_index[[top$word[[i]]]])) {
+    rep(0,max_len) -> embedding_values[[i]]
+  } else {
+    embeddings_index[[top$word[[i]]]] -> embedding_values[[i]]
+  }
+    
+    #, rep(0,max_len), embeddings_index[[top$word[[i]]]])
+  #embeddings_index[[top$word[[i]]]] -> embedding_values[[i]]
+  # tibble(word = top$word[[i]]) %>% cbind(t(
+  #   as_tibble(embeddings_index[[top$word[[i]]]])
+  # )) -> list_tibble[[i]]
 }
 
-embedding_values[[1]] -> single_embedding
-top[1, ] -> single_name
+#embedding_values[[1]] -> single_embedding
+#top[1, ] -> single_name
 
-single_name %>% mutate(single_embedding)
-tibble(single_name, single_embedding )
+single_name %>% cbind(single_embedding)
+as_tibble(single_name, t(single_embedding) )
 
 top %>% select(word, category) %>% rowid_to_column("id") %>%
 
 embedding_values %>% map(as_tibble) %>%
   map(~prepend(values = as.list(top$word), .x)) %>% reduce(cbind)
 
-embedding_values%>% map(~as.data.table(.x))
+embedding_values %>% 
+  map(~t(as.data.table(.x))) %>% 
+  map(~as.data.table(.x)) %>%
+  rbindlist() %>%
+  cbind(  word = top$word, category = top$category , .) -> top_embedding
 #bind_rows(embedding_values)
 embedding_values %>%
-  sapply(., function(x) t(as.data.table(x) )) %>%
+  sapply(., function(x) as.data.table(t(as.data.table(x)) )) %>%
   rbindlist() %>%
   as_tibble() %>%
   bind_cols(category = top %>% select(category, word) ,.) %>%
   ungroup() -> top_embedding
+###########################################
+DATA %>%
+  preprocess( variable = "main") %>%
+  unnest_tokens(word, data) %>% 
+  group_by(category) %>%
+  count(word) %>%
+  arrange(desc(n)) %>%
+  #group_by(category) %>%
+  top_n(200, n) %>%
+  ungroup() -> top
 
+vector("list", length = nrow(top)) -> embedding_values
+for (i in 1:nrow(top)) {
+  embeddings_index[[top$word[[i]]]] -> embedding_values[[i]]
+  #as_tibble(word = top$word[i]) %>% cbind(data.table(embedding_values[[i]]))
+}
+#-------------------
+embedding_values %>% 
+  map(~t(as.data.table(.x))) %>% 
+  map(~as.data.table(.x)) %>%
+  rbindlist() -> elo
+
+elo$name <- top$word
+
+#--------------------------
+embedding_values %>%
+  map(. , as.data.table)
+  rbindlist()
 
 library(Rtsne)
 library(plotly)
+as.matrix(top_embedding %>% select(-category, -word)  %>% unique()) %>% duplicated()
 
-tsne_out <- Rtsne(X = as.matrix(top_embedding %>% select(-category, -word) ), dims = 3)
+top_embedding %>% select(-category, -word)  %>% nrow()
+top_embedding %>% select(-category, -word) %>% duplicated() -> index
+
+top_embedding[index, ]$word %>% unique() %>% length()
+
+
+top_embedding %>%
+  nest(-word) %>%
+  #group_by(word) %>%
+  mutate(data = map(data, ~pull_cat(.x))) %>%
+  unnest() -> top_embedding_unique
+
+#-------------
+
+top_embedding %>% select(-category, -word) %>% duplicated() %>% which() %>%
+  top_embedding[. , ] %>%
+  nest(-word) %>%
+  #group_by(word) %>%
+  mutate(data = map(data, ~pull_cat(.x))) %>%
+  unnest() -> elo
+  
+ elo$cat_all -> list_categories
+
+elo[ elo$word %>% duplicated() ,]
+ #rlist::list.filter()
+ elo$word %>% unique() %>% length() 
+top_embedding_unique %>%
+  identical(nrow(unique(.)), nrow(.))
+#--------------
+
+pull_cat <- function(df) {
+  df %>% pull(category) -> col_name
+  df %>% select(-category) %>% unique() %>%
+    mutate(cat_all = list(col_name)) %>% select(cat_all, everything()) %>% return(.)
+}
+elo$data[[1]] %>% pull(category) %>% toString()
+
+all
+tsne_out <- Rtsne(X = as.matrix(top_embedding_unique %>% select(-cat_all, -word)), dims = 3)
+top_embedding_unique %>% select(-cat_all, -word) %>% duplicated() %>% which() -> index
+
+top_embedding_unique[index,]$word
 
 # Prepare a data frame for plotting
 d_tsne <- data.frame(tsne_out$Y, Class = Vehicle$Class)
