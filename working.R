@@ -352,7 +352,7 @@ train_cross_validate <- function(dane, model, ... ) {
     # reset_states(model)
   }
   return(list(
-    plots = plot_list, metrics = history, model = model
+    plots = plot_list, metrics = history_list, model = model_list
   ))
 }
 train_cross_validate(DATA_tokenized, model) -> analisis
