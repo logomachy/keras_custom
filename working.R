@@ -272,7 +272,7 @@ train_cross_validate <- function(dane, model, ... ) {
     callback <- list(
       callback_early_stopping(
         monitor = "val_acc",
-        min_delta = 0.01,
+        min_delta = 0.001,
         patience = 3,
         restore_best_weights = T
       ),  
@@ -356,6 +356,7 @@ train_cross_validate <- function(dane, model, ... ) {
   ))
 }
 train_cross_validate(DATA_tokenized, model) -> analisis
+write_rds(analisis, "analisis.rds")
 #################################
 test_set %>%
   preprocess( variable = "main") %>%
