@@ -334,7 +334,7 @@ library(Rtsne)
 library(plotly)
 library(ggsci)
 
-ggsci::pal_jco() -> paletka
+ggsci::pal_jco() -> paletka 
 
 
 show_emb <- function(DATA, variable = "main", top_idf = 500, dims = 2, perplex = 15, ...) {
