@@ -29,6 +29,10 @@ sample(1:nrow(DATA), nrow(DATA)*0.2) -> test_index
 DATA[-test_index, ] -> train_set
 DATA[test_index, ] -> test_set
 #--------------------------------------------
+train_set %>%
+  preprocess() -> zbior
+
+
 preprocess <- function(DATA,
                        variable = "main", no_folds = 10) {
   ################
@@ -99,8 +103,8 @@ onehot_represenation <- function(jolo) {
   }
 }
 tokenize_text <- function(zbior,
-                          max_len = 100,
-                          max_words = 3e4, is_test = F, use_tf_idf = T,  ...){
+                          max_len = 128,
+                          max_words = 1024 * 25, is_test = F, use_tf_idf = T,  ...){
   if(is_test == F) {
     if(use_tf_idf == T){
       #--------------------
@@ -114,7 +118,7 @@ tokenize_text <- function(zbior,
         filter(value <= max_words) %>%
         select(value, word) ->> tokenization
       
-      to_sequence <- function(sentence,  ...) {
+      to_sequence <<- function(sentence,  ...) {
         sentence %>%
           str_split(" ") %>%
           unlist() %>%
@@ -161,7 +165,7 @@ tokenize_text <- function(zbior,
   }else if(is_test == T) {
     if(use_tf_idf == T){
       zbior$data %>%
-        future_map( . , to_sequence , .progress = TRUE)  -> sekwencja
+        map( . , to_sequence )  -> sekwencja
       data <- pad_sequences(sekwencja, maxlen = max_len)
       as_tibble(data) %>%
         mutate(target = as.factor(zbior$category)) %>% onehot_represenation() -> tibb
@@ -182,7 +186,7 @@ train_set %>%
   tokenize_text() -> DATA_tokenized
 #--------------------------------------------
 setwd("..")
-lines <- readLines("glove.6B.100d.txt")
+lines <- readLines("glove.6B.300d.txt")
 #-----------------------------------
 embeddings_index <- new.env(hash = T,
                             parent = emptyenv() )
@@ -200,9 +204,9 @@ for (i in 1:length(lines)) {
 }
 cat("Found", length(embeddings_index), "word vectors.\n")
 #-----------------------------------
-max_words = 3e4
-emdedding_dim <- 100
-max_len <- 100
+max_words = 1024 * 25
+emdedding_dim <- 300
+max_len <- 128
 #---------------------------------
 embedding_matrix <- array(0, c(max_words, emdedding_dim))
 q <- progress_estimated(length(names(word_index)))
@@ -219,7 +223,7 @@ for (word in names(word_index)) {
 ##################################
 #TRAINING
 ##################################
-train_cross_validate <- function(dane, model, ... ) {
+train_cross_validate <- function(dane, ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
   list() -> accuracy_list
   list() -> plot_list
@@ -283,7 +287,7 @@ train_cross_validate <- function(dane, model, ... ) {
       # ),
       callback_reduce_lr_on_plateau(
         monitor = "val_acc",
-        factor = 0.5,
+        factor = 0.1,
         patience = 1 ,
         cooldown = 1,
         verbose = 1
@@ -355,7 +359,7 @@ train_cross_validate <- function(dane, model, ... ) {
     plots = plot_list, metrics = history_list, model = model_list
   ))
 }
-train_cross_validate(DATA_tokenized, model) -> analisis
+train_cross_validate(dane = DATA_tokenized) -> analisis
 write_rds(analisis, "analisis.rds")
 #################################
 test_set %>%
@@ -377,7 +381,7 @@ model_performace  <- function(test_tokenized, model) {
     as_tibble() %>%
     return(.)
 }
-model_performace(test_tokenized, analisis$model)
+model_performace(test_tokenized, model)
 ############################
 #tf-idf
 ############################
