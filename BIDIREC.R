@@ -162,8 +162,6 @@ for (word in names(word_index)) {
   }
   q$tick()$print()
 }
-
-
 ##################################
 #TRAINING
 ##################################
@@ -172,6 +170,7 @@ train_cross_validate <- function(dane, model, callback, ... ) {
   list() -> accuracy_list
   list() -> plot_list
   list() -> history_list
+  list() -> model_list
   for (f in sort(unique(dane$fold)) ) {
     #####################################################
     #MODEL ARCHITECTURE
@@ -287,6 +286,8 @@ train_cross_validate <- function(dane, model, callback, ... ) {
       select(contains("val")) %>%
       mutate(fold = f) -> accuracy_list[[f]]
     
+    model -> model_list[[f]]
+    
     plot(history) -> plot_list[[f]]
     history -> history_list[[f]]
     cat("#################################### \n")
@@ -321,11 +322,106 @@ model_performace  <- function(test_tokenized, model) {
     as_tibble() %>%
     return(.)
 }
-model_performace(test_tokenized, model)
+model_performace(test_tokenized, analisis$model)
 ##############################################
 analisis$plots 
 
 analisis$metrics %>% glimpse()
+#############################
+#tf-idf
+############################
+library(Rtsne)
+library(plotly)
+library(ggsci)
+
+ggsci::pal_jco() -> paletka
+
+
+show_emb <- function(DATA, variable = "main", top_idf = 500, dims = 2, perplex = 15, ...) {
+  if(!top_idf - 1 > 3*perplex) stop("Perplexity too big")
+  ggsci::pal_jco() -> paletka
+  list() -> lista_emb
+  DATA %>%
+    preprocess( variable ) %>%
+    unnest_tokens(word, data) %>%
+    count(category, word, sort = T) %>%
+    bind_tf_idf(word, category, n) %>%
+    arrange(desc(tf_idf)) -> term_freq_df #%>%
+    #group_by(category) %>%
+    #top_n(top_idf, tf_idf)
+    #-> term_freq_df
+  
+  select_top_idf <- function(data) {
+    data %>%
+      top_n(1, tf_idf)
+  }
+  
+  
+  term_freq_df %<>%
+    nest(-word) %>%
+    mutate(prep = map(data, select_top_idf)) %>%
+    select(-data) %>%
+    unnest() %>%
+    group_by(category) %>%
+    top_n(top_idf, tf_idf) %>%
+    ungroup()
+  
+  
+  find_emb  <- function(term_freq_df, embeddings_index, i,  ...) {
+    tibble(word = term_freq_df$word[i]) %>%
+      bind_cols(as_tibble(as_tibble(embeddings_index[[term_freq_df$word[i]]]) %>% t())) %>%
+      return(.)
+  }
+  
+  map_df(1:nrow(term_freq_df), function(i) find_emb(term_freq_df, embeddings_index, i) ) %>%
+    right_join(term_freq_df, by = "word") -> data_after_emb
+  data_after_emb %<>% na.omit()
+   
+  tsne_out <- Rtsne(X = as.matrix(data_after_emb %>% select(starts_with("V"))), dims = dims, perplexity = perplex)
+  
+  as_tibble(tsne_out$Y) %>%
+    bind_cols(data_after_emb %>% select(word, category, tf_idf)) -> tsne_df
+
+  tsne_df %>%
+    mutate(category = as.factor(category)) %>%
+    as_tibble() -> data_to_plot
+  
+  if(dims == 3){
+    data_to_plot %>%
+      plot_ly(. , x = ~ V1, y = ~V2, z = ~V3, color = ~ category, text = ~ word, size = ~  tf_idf,  #alpha = 0.8,
+              colors = paletka(unique(tsne_df$category) %>% length()),
+              hovertemplate = paste(
+                "<b>%{text}</b><br><br>",
+                "tf_idf: %{marker.size:, }",
+                "<extra></extra>"
+              )
+      ) %>%
+      add_markers() %>%
+      layout(title = "t-SNE on embedding") -> plocik
+  } else if(dims == 2){
+    data_to_plot %>%
+      plot_ly(. , x = ~ V1, y = ~V2,  color = ~ category, text = ~ word, size = ~  tf_idf,  #alpha = 0.8,
+              colors = paletka(unique(tsne_df$category) %>% length()),
+              hovertemplate = paste(
+                "<b>%{text}</b><br><br>",
+                "tf_idf: %{marker.size:, }",
+                "<extra></extra>"
+              )
+      ) %>%
+      add_markers() %>%
+      layout(title = "t-SNE on embedding") -> plocik
+  }
+  plocik %>%
+      return(.)
+  
+}
+
+show_emb(DATA) -> tsne
+
+
+find_emb(term_freq_df, embeddings_index , 1)
+
+
 ##############################
 #own embedding
 ################################
