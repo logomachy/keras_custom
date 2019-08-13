@@ -372,7 +372,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
       callback_reduce_lr_on_plateau(
         monitor = "val_acc",
         min_delta = 0.01,
-        factor = 0.1,
+        factor = 0.5,
         patience = 1 ,
         cooldown = 1,
         verbose = 1
@@ -480,6 +480,7 @@ model_performace  <- function(test_tokenized, model) {
     return(.)
 }
 model_performace(test_tokenized, analisis$model[[1]]) #0.973
+model_performace(test_tokenized, model)
 ############################
 #tf-idf
 ############################
