@@ -7,6 +7,7 @@ library(magrittr)
 library(rebus)
 library(keras)
 library(furrr)
+library(tfruns)
 plan(multisession)
 #-----------
 setwd("bbc/")
@@ -25,10 +26,14 @@ data_load <- function(i, ...) {
 lapply(1:length(categories), function(i) data_load(i) )  %>% bind_rows() -> DATA
 DATA %<>% mutate(text = map_chr(text, unlist ))
 set.seed(1)
-sample(1:nrow(DATA), nrow(DATA)*0.2) -> test_index
+sample(1:nrow(DATA), nrow(DATA)*0.1) -> test_index
 DATA[-test_index, ] -> train_set
 DATA[test_index, ] -> test_set
 #--------------------------------------------
+# train_set %>%
+#   preprocess() -> zbior
+# 
+#--------------------------------------------------
 preprocess <- function(DATA,
                        variable = "main", no_folds = 10) {
   ################
@@ -99,8 +104,8 @@ onehot_represenation <- function(jolo) {
   }
 }
 tokenize_text <- function(zbior,
-                          max_len = 100,
-                          max_words = 3e4, is_test = F, use_tf_idf = T,  ...){
+                          max_len = 128,
+                          max_words = 1024 * 25, is_test = F, use_tf_idf = T,  ...){
   if(is_test == F) {
     if(use_tf_idf == T){
       #--------------------
@@ -114,7 +119,7 @@ tokenize_text <- function(zbior,
         filter(value <= max_words) %>%
         select(value, word) ->> tokenization
       
-      to_sequence <- function(sentence,  ...) {
+      to_sequence <<- function(sentence,  ...) {
         sentence %>%
           str_split(" ") %>%
           unlist() %>%
@@ -161,7 +166,7 @@ tokenize_text <- function(zbior,
   }else if(is_test == T) {
     if(use_tf_idf == T){
       zbior$data %>%
-        future_map( . , to_sequence , .progress = TRUE)  -> sekwencja
+        map( . , to_sequence )  -> sekwencja
       data <- pad_sequences(sekwencja, maxlen = max_len)
       as_tibble(data) %>%
         mutate(target = as.factor(zbior$category)) %>% onehot_represenation() -> tibb
@@ -182,7 +187,7 @@ train_set %>%
   tokenize_text() -> DATA_tokenized
 #--------------------------------------------
 setwd("..")
-lines <- readLines("glove.6B.100d.txt")
+lines <- readLines("glove.6B.300d.txt")
 #-----------------------------------
 embeddings_index <- new.env(hash = T,
                             parent = emptyenv() )
@@ -190,6 +195,7 @@ cat("Loading embedding... \n")
 p <- progress_estimated(length(lines))
 ###############################
 options(expressions = 5e5)
+tictoc::tic()
 for (i in 1:length(lines)) {
   line <- lines[[i]]
   values <- strsplit(line, " ")[[1]]
@@ -197,16 +203,72 @@ for (i in 1:length(lines)) {
   embeddings_index[[word]] <- as.double(values[-1])
   p$tick()$print()
   #if(i %% 1e5 == 0) {gc()}
-}
+}#56.39
+tictoc::toc()
+###################
+names(embeddings_index) %>% tail()
+embeddings_index[["mayberg"]]
+###################################
+# 
+# embeddings_index2 <- new.env(hash = T,
+#                              parent = emptyenv() )
+# load_emb  <- function(i, ...){
+#     line <- lines[[i]]
+#     values <- strsplit(line, " ")[[1]]
+#     word <- values[[1]]
+#     #embeddings_index2[[word]] <- as.double(values[-1])
+#     data.table(word, values[-1] %>% t()) %>%
+#     return(.)
+# }
+# library(doFuture)
+# registerDoFuture()
+# mu <- 1.0
+# sigma <- 2.0
+# x <- foreach(i = 1:3,
+#              .export = c("mu", "sigma")) %do%
+#   { rnorm(i, mean = mu, sd = sigma) }
+# 
+# x <- foreach(i = 1:length(lines),
+#              .export = c("lines", "embeddings_index2")) %do%
+#              { load_emb(i) }
+# #######################
+# library(future.apply)
+# future_sapply(1:length(lines), load_emb,.progress = TRUE) -> elo
+# (1:length(lines), load_emb) -> dlo
+# 
+# foreach (i=1:length(lines),
+#          .combine=function(...) rbindlist(list(...)),
+#          .multicombine=TRUE) %dopar% load_emb(i) -> elo
+# 
+# 
+# load_emb(212) %>% names()
+# 
+# lines %>% map(., load_emb)
+# 
+# lines %>%
+#   as_tibble() %>%
+#   map(, load_emb)
+# 
+# lapply(list, function)
+# 
+# 
+# 
+# pmap(lines, load_emb) 
+# 
+# lapply(1:length(lines), function(embeddings_index2, lines, i) pull_lines(embeddings_index2, lines, i) )
+# 
+# pmap(1:length(lines), pull_lines(embeddings_index2, lines, i))
+############################################
 cat("Found", length(embeddings_index), "word vectors.\n")
 #-----------------------------------
-max_words = 3e4
-emdedding_dim <- 100
-max_len <- 100
+max_words = 1024 * 25
+emdedding_dim <- 300
+max_len <- 128
 #---------------------------------
 embedding_matrix <- array(0, c(max_words, emdedding_dim))
 q <- progress_estimated(length(names(word_index)))
 cat("Filling up the embedding matrix...\n")
+tictoc::tic()
 for (word in names(word_index)) {
   index <- word_index[[word]]
   if (index < max_words) {
@@ -216,10 +278,32 @@ for (word in names(word_index)) {
   }
   q$tick()$print()
 }
+tictoc::toc()
+#embedding_matrix %>%  write_rds(.,"embedding_matrix.rds")
+read_rds("embedding_matrix.rds") -> embedding_matrix
 ##################################
 #TRAINING
 ##################################
-train_cross_validate <- function(dane, model, ... ) {
+flagi <- flags(
+  flag_integer("first_bidirectional_units", 512), 
+  flag_numeric("first_bidirectional_drop", 0.2), 
+  flag_numeric("first_bidirectional_rec_drop", 0.2), 
+  
+  
+  flag_integer("second_bidirectional_units", 256), 
+  flag_numeric("second_bidirectional_drop", 0.2), 
+  flag_numeric("second_bidirectional_rec_drop", 0.2),
+  
+  
+  flag_integer("first_dense_units", 128),
+  flag_numeric("first_dense_drop", 0.2),
+  
+  flag_integer("second_dense_units", 64),
+  flag_numeric("second_dense_drop", 0.2)
+)
+
+#################################
+train_cross_validate <- function(dane, flagi, ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
   list() -> accuracy_list
   list() -> plot_list
@@ -236,22 +320,26 @@ train_cross_validate <- function(dane, model, ... ) {
       layer_embedding(input_dim = max_words, output_dim = emdedding_dim, 
                       input_length = max_len, name = "embedding") %>%
       #bidirectional( layer_lstm(units = 128) ) %>%
-      bidirectional(layer_gru(units = 64,
-                              dropout = 0.1,
-                              recurrent_dropout = 0.3,
+      bidirectional(layer_gru(units = flagi$first_bidirectional_units,
+                              dropout = flagi$first_bidirectional_drop,
+                              recurrent_dropout = flagi$first_bidirectional_rec_drop,
                               return_sequences = TRUE), name = "bidirectional_gru") %>%
-      layer_gru(units = 64, activation = "relu",
-                dropout = 0.1,
-                recurrent_dropout = 0.3) %>%
+      layer_batch_normalization() %>%
+      layer_activation_leaky_relu() %>%
+      layer_gru(units = flagi$second_bidirectional_units, #activation = "relu",
+                dropout = flagi$second_bidirectional_drop,
+                recurrent_dropout = flagi$second_bidirectional_rec_drop) %>%
+      layer_batch_normalization() %>%
+      layer_activation_relu() %>%
       # layer_flatten() %>%
-      layer_dense(units = 64 , name = "first_dense_unit", use_bias = F) %>%
+      layer_dense(units = flagi$first_dense_units , name = "first_dense_unit", use_bias = F) %>%
       layer_batch_normalization() %>%
       layer_activation_leaky_relu() %>%
-      #layer_dropout(0.4) %>%
-      layer_dense(units = 32 , name = "2_dense_unit", use_bias = F) %>%
+      layer_dropout(flagi$first_dense_drop) %>%
+      layer_dense(units = flagi$second_dense_units , name = "2_dense_unit", use_bias = F) %>%
       layer_batch_normalization() %>%
       layer_activation_leaky_relu() %>%
-      #layer_dropout(0.1) %>%
+      layer_dropout(flagi$second_dense_drop) %>%
       layer_dense(units = 5, activation = "softmax") -> output
     
     model <- keras_model(inputs = layer_words,
@@ -272,8 +360,8 @@ train_cross_validate <- function(dane, model, ... ) {
     callback <- list(
       callback_early_stopping(
         monitor = "val_acc",
-        min_delta = 0.01,
-        patience = 3,
+        min_delta = 0.001,
+        patience = 4,
         restore_best_weights = T
       ),  
       # callback_model_checkpoint(
@@ -283,7 +371,8 @@ train_cross_validate <- function(dane, model, ... ) {
       # ),
       callback_reduce_lr_on_plateau(
         monitor = "val_acc",
-        factor = 0.5,
+        min_delta = 0.01,
+        factor = 0.1,
         patience = 1 ,
         cooldown = 1,
         verbose = 1
@@ -298,7 +387,7 @@ train_cross_validate <- function(dane, model, ... ) {
     #   filter(fold == f ) %>%
     #   select(-fold) -> test_data
     
-    
+    dane[is.na(dane)] <- 0
     #----------------------------------------
     dane %>%
       filter(fold != f ) %>%
@@ -331,31 +420,45 @@ train_cross_validate <- function(dane, model, ... ) {
         y = train_target,
         callbacks = callback,
         validation_data = list(valid_X , valid_target),
-        epochs = 30, 
-        batch_size = 64 ) -> history #val_acc: 0.9708
+        epochs = 12, 
+        batch_size = 64 ) -> history #test 0.964
     
-    history$metrics %>%
-      as_tibble() %>% tail(1) %>% 
-      select(contains("acc")) %>% 
-      select(contains("val")) %>%
-      mutate(fold = f) -> accuracy_list[[f]]
+    model %>% predict(valid_X) %>% as_tibble() %>%
+      set_names(c("target=business", "target=entertainment", "target=politics", "target=sport", "target=tech")) -> tmp
+    
+    tmp %>% apply(., 1, which.max)
+    # history$metrics %>%
+    #   as_tibble() %>% tail(1) %>% 
+    #   select(contains("acc")) %>% 
+    #   select(contains("val")) %>%
+    #   mutate(fold = f) -> accuracy_list[[f]]
     
     model -> model_list[[f]]
     
     plot(history) -> plot_list[[f]]
     history -> history_list[[f]]
     cat("#################################### \n")
-    accuracy_list[[f]] %>% print()
+    #accuracy_list[[f]] %>% print()
     cat("#################################### \n")
     progress$tick()$print()
     k_clear_session()
     # reset_states(model)
   }
   return(list(
-    plots = plot_list, metrics = history, model = model
+    plots = plot_list, metrics = history_list, model = model_list
   ))
 }
-train_cross_validate(DATA_tokenized, model) -> analisis
+train_cross_validate(dane = DATA_tokenized, flagi) -> analisis
+#write_rds(analisis, "analisis.rds")
+read_rds("analisis.rds") -> analisis
+
+analisis$metrics %>% str()
+
+
+#################################
+analisis$metrics[[1]] %>% str()
+analisis$plots[[1]]
+analisis$model[[1]]
 #################################
 test_set %>%
   preprocess( variable = "main") %>%
@@ -376,7 +479,7 @@ model_performace  <- function(test_tokenized, model) {
     as_tibble() %>%
     return(.)
 }
-model_performace(test_tokenized, analisis$model)
+model_performace(test_tokenized, analisis$model[[1]]) #0.973
 ############################
 #tf-idf
 ############################
