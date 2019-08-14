@@ -372,7 +372,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
       callback_reduce_lr_on_plateau(
         monitor = "val_acc",
         min_delta = 0.01,
-        factor = 0.5,
+        factor = 0.2,
         patience = 1 ,
         cooldown = 1,
         verbose = 1
