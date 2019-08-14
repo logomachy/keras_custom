@@ -8,6 +8,8 @@ library(rebus)
 library(keras)
 library(furrr)
 library(tfruns)
+library(superheat)
+library(caret)
 plan(multisession)
 #-----------
 setwd("bbc/")
@@ -303,6 +305,42 @@ flagi <- flags(
 )
 
 #################################
+reverse_one_hot <- function(tmp) {
+  reverse_one_hot_iterator <- function(i, ...) {
+    tmp %>% as_tibble() %>%
+      .[i, ] %>%
+      which.max() %>%
+      names() %>%
+      return(.)
+  }
+  sapply(1:nrow(tmp), function(i) reverse_one_hot_iterator(i)) %>%
+    str_remove_all("target=") %>%
+    enframe(name = NULL) %>%
+    mutate(value = as.factor(value)) %>%
+    pull() %>%
+    return(.)
+}
+cv_predict <- function(model, valid_X,
+                       train_data # for colnames
+) {
+  model %>% predict(valid_X) %>%
+    as_tibble() %>%
+    set_names(train_data %>% as_tibble() %>% select(starts_with("target")) %>% colnames()) %>%
+    return(.)
+}
+confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
+  cv_predict(model, valid_X, train_data ) -> cross_validation_pred
+  confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
+  confuse_a_cat %>%
+    .$byClass %>% as.data.frame() %>% pull(`Balanced Accuracy`) -> Balanced_Accuracy
+  confuse_a_cat %>% .$table %>%
+    rbind( Balanced_Accuracy) %>%
+    superheat(  
+      X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
+      row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
+      column.title = "Reference",
+      legend = F)
+}
 train_cross_validate <- function(dane, flagi, ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
   list() -> accuracy_list
@@ -423,16 +461,116 @@ train_cross_validate <- function(dane, flagi, ... ) {
         epochs = 12, 
         batch_size = 64 ) -> history #test 0.964
     
-    model %>% predict(valid_X) %>% as_tibble() %>%
-      set_names(c("target=business", "target=entertainment", "target=politics", "target=sport", "target=tech")) -> tmp
+    cv_predict(model, valid_X, train_data) %>%
+      reverse_one_hot() %>%
+      enframe(name = NULL, value = "category") %>%
+      mutate(set = "predicted") %>%
+      bind_rows(
+        valid_target %>%
+          reverse_one_hot() %>%
+          enframe(name = NULL,value = "category") %>%
+          mutate(set = "reference")
+          
+      )
     
-    tmp %>% apply(., 1, which.max)
+    plot.roc(aSAH$outcome, aSAH$s100b,          # data
+             percent = TRUE,                    # show all values in percent
+             partial.auc=c(100, 90), 
+             partial.auc.correct=TRUE,          # define a partial AUC (pAUC)
+             print.auc=TRUE,                    
+             #display pAUC value on the plot with following options:
+             print.auc.pattern = "Corrected pAUC (100-90%% SP):\n%.1f%%",
+             print.auc.col = "#1c61b6",
+             auc.polygon = TRUE, 
+             auc.polygon.col = "#1c61b6",       # show pAUC as a polygon
+             max.auc.polygon = TRUE, 
+             max.auc.polygon.col = "#1c61b622", # also show the 100% polygon
+             main = "Partial AUC (pAUC)")
+    
+    
+    # plot_roc <- function(model, what_title ="") {
+    #   ifelse(nrow(model) > 5, 0.6, 0.8) -> alpha_col
+    #   
+    #   model$roc %>% 
+    #     bind_rows() %>%
+    #     as_tibble() %>%
+    #     ggplot(aes(x = fpr, y = tpr, color = algorithm)) +
+    #     #geom_point(size =0.5 )+
+    #     #geom_smooth(method = "loess") +
+    #     geom_line(linetype = 1, size = 1, alpha = alpha_col) +
+    #     #scale_x_log10()+
+    #     scale_color_jco()+
+    #     geom_segment(aes(x=0,y=0,xend = 1, yend = 1), linetype = 2, color = "gray") +
+    #     xlab("False positive rate") +
+    #     ylab("True positive rate")+
+    #     labs(title = paste0("ROC curve for: ", what_title ) ) 
+    # }
+
+    
+#confusion_matrix_plot(model, valid_X, valid_target, train_data)
+      
+    
+    #library(superheat)
+    
+    # caret::confusionMatrix(data=  reverse_one_hot(tmp),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
+    # 
+    # 
+    # confuse_a_cat %>%
+    #   .$byClass %>% as.data.frame() %>% pull(`Balanced Accuracy`) -> Balanced_Accuracy
+    # 
+    # 
+    # order(mtcars$mpg)
+    # 
+    # 
+    # confuse_a_cat %>% .$table %>%
+    #   rbind( Balanced_Accuracy) %>%
+    #   superheat(  
+    #     X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
+    #     row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
+    #     column.title = "Reference",
+    #     legend = F)
+   
+    #-------------------------------- 
+    # table(reverse_one_hot(valid_target), 
+    #       reverse_one_hot(tmp)) 
+    # 
+    
+    # plot_confusion <- function(confusion_matrix, valid_absolute_mcc, model_id, algorithm ) {
+    #   confusion_matrix %>%
+    #     as.data.frame() -> confusion_df
+    #   
+    #   confusion_df%>%
+    #     head(2) %>%
+    #     set_rownames(c("no", "yes")) %>%
+    #     select(1,2, "Error") %>%
+    #     as.matrix() %>%
+    #     superheat(#scale = T,
+    #       X.text = round(as.matrix(.), 3),order.rows = order( rownames(.) ,decreasing = T),
+    #       row.title = "True",
+    #       column.title = "Predicted",
+    #       legend = F,
+    #       title.size = 5, title.alignment = "center",
+    #       title = paste0("Confusion Matrix for \n",  algorithm, "\n with max absolute_mcc = ", round(valid_absolute_mcc ,2))
+    #     )
+    # }
+    # 
+   #  
+   #  table(as.matrix(valid_target), as.matrix(tmp)) %>% caret::confusionMatrix()
+   #  
+   #  #tmp %>% which(max, arr.ind = T)
+   #  
+   #  colmax <- function(data_frame) {
+   #    data_frame %>% apply(., 2, max ) %>% return(.)
+   #  }
+   #  
+   #  
+   # which( colmax(tmp) == col_number(tmp))
     # history$metrics %>%
     #   as_tibble() %>% tail(1) %>% 
     #   select(contains("acc")) %>% 
     #   select(contains("val")) %>%
     #   mutate(fold = f) -> accuracy_list[[f]]
-    
+    #--------------------------
     model -> model_list[[f]]
     
     plot(history) -> plot_list[[f]]
@@ -472,6 +610,8 @@ model_performace  <- function(test_tokenized, model) {
   test_tokenized %>%
     select(-one_of(test_target %>% colnames())) %>%
     data.matrix() -> test_X
+  
+  confusion_matrix_plot(model, test_X, test_target, test_target)
   
   model %>%
     # load_model_weights_hdf5("my_model.h5") %>%
