@@ -451,41 +451,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
       select(-one_of(train_target %>% colnames())) %>%
       data.matrix() -> valid_X
     ####################################
-    model %>%
-      fit(
-        verbose = 1,
-        x = train_X ,
-        y = train_target,
-        callbacks = callback,
-        validation_data = list(valid_X , valid_target),
-        epochs = 12, 
-        batch_size = 64 ) -> history #test 0.964
-    
-    cv_predict(model, valid_X, train_data) %>%
-      reverse_one_hot() %>%
-      enframe(name = NULL, value = "category") %>%
-      mutate(set = "predicted") %>%
-      bind_rows(
-        valid_target %>%
-          reverse_one_hot() %>%
-          enframe(name = NULL,value = "category") %>%
-          mutate(set = "reference")
-          
-      )
-    
-    plot.roc(aSAH$outcome, aSAH$s100b,          # data
-             percent = TRUE,                    # show all values in percent
-             partial.auc=c(100, 90), 
-             partial.auc.correct=TRUE,          # define a partial AUC (pAUC)
-             print.auc=TRUE,                    
-             #display pAUC value on the plot with following options:
-             print.auc.pattern = "Corrected pAUC (100-90%% SP):\n%.1f%%",
-             print.auc.col = "#1c61b6",
-             auc.polygon = TRUE, 
-             auc.polygon.col = "#1c61b6",       # show pAUC as a polygon
-             max.auc.polygon = TRUE, 
-             max.auc.polygon.col = "#1c61b622", # also show the 100% polygon
-             main = "Partial AUC (pAUC)")
+ 
     
     
     # plot_roc <- function(model, what_title ="") {
@@ -570,7 +536,66 @@ train_cross_validate <- function(dane, flagi, ... ) {
     #   select(contains("acc")) %>% 
     #   select(contains("val")) %>%
     #   mutate(fold = f) -> accuracy_list[[f]]
+    #--------------------------------------
+    reverse_one_hot <- function(tmp) {
+      reverse_one_hot_iterator <- function(i, ...) {
+        tmp %>% as_tibble() %>%
+          .[i, ] %>%
+          which.max() %>%
+          names() %>%
+          return(.)
+      }
+      sapply(1:nrow(tmp), function(i) reverse_one_hot_iterator(i)) %>%
+        str_remove_all("target=") %>%
+        enframe(name = NULL) %>%
+        mutate(value = as.factor(value)) %>%
+        pull() %>%
+        return(.)
+    }
+    cv_predict <- function(model, valid_X,
+                           train_data # for colnames
+    ) {
+      model %>% predict(valid_X) %>%
+        as_tibble() %>%
+        set_names(train_data %>% as_tibble() %>% select(starts_with("target")) %>% colnames()) %>%
+        return(.)
+    }
+    confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
+      cv_predict(model, valid_X, train_data ) -> cross_validation_pred
+      confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
+      confuse_a_cat %>%
+        .$byClass %>% as.data.frame() %>% pull(`Balanced Accuracy`) -> Balanced_Accuracy
+      confuse_a_cat %>% .$table %>%
+        rbind( Balanced_Accuracy) %>%
+        superheat(  
+          X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
+          row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
+          column.title = "Reference",
+          legend = F)
+    }
+    
+    
+    cv_predict(model, valid_X, train_data ) -> cross_validation_pred 
+    
+    tibble(predicted = cross_validation_pred %>% 
+             reverse_one_hot(), 
+           true = valid_target %>%
+             reverse_one_hot()) %>%
+      mutate(zgodny = predicted == true) %>%
+      rowid_to_column("id") %>%
+      filter(zgodny == F) %>%
+      select(-zgodny) -> whats_wrong
+    
+    
+    valid_X %>% as_tibble() %>% .[whats_wrong$id, ] -> wrong_df
+    
+    wrong_df %>% replace(word_index, )
+    word_index %>% map(~as.numeric(.x)[1])
+    sapply(word_index, function(x){as.numeric(x[1])}) 
     #--------------------------
+    cv_predict(model, valid_X, train_data) %>%
+      reverse_one_hot() %>%
+      confusion_matrix_plot(model, valid_X, train_data )
     model -> model_list[[f]]
     
     plot(history) -> plot_list[[f]]
