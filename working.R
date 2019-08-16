@@ -589,13 +589,40 @@ train_cross_validate <- function(dane, flagi, ... ) {
     
     valid_X %>% as_tibble() %>% .[whats_wrong$id, ] -> wrong_df
     
-    wrong_df %>% replace(word_index, )
-    word_index %>% map(~as.numeric(.x)[1])
-    sapply(word_index, function(x){as.numeric(x[1])}) 
-    #--------------------------
-    cv_predict(model, valid_X, train_data) %>%
-      reverse_one_hot() %>%
-      confusion_matrix_plot(model, valid_X, train_data )
+    #replace(c(a=1, b=2, c=3, d=4), "b", 10)
+    
+    
+    sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
+    
+    
+    
+    retokenize_wrong  <- function(wrong_df, whats_wrong, word_index) {
+      retokenize_wrong_iterator  <- function(i, ...) {
+        wrong_df[i, ] %>%
+          t() %>%
+          as_tibble() %>%
+          left_join(tidy_word_index, by =c("V1" = "x" )) %>%
+          pull(names) %>%
+          replace_na("0") %>%
+          return(.)
+      }
+      map(1:nrow(wrong_df), function(i) as_tibble(t( retokenize_wrong_iterator(i) %>% str_remove_all("0") %>% .[. != ""] %>% toString() )) ) %>%
+        bind_rows() %>%
+        bind_cols(whats_wrong , .) %>%
+        return(.)
+    }
+
+    retokenize_wrong(wrong_df,whats_wrong, word_index)
+ 
+    # map(1:nrow(wrong_df), function(i) as_tibble(t( retokenize_wrong_iterator(i) %>% str_remove_all("0") %>% .[. != ""] %>% toString() )) ) %>%
+    #   bind_rows() 
+    # #word_index %>% map(~as.numeric(.x)[1])
+    # map(1:nrow(wrong_df), function(i) as_tibble(t(retokenize_wrong_iterator(i))) ) %>% str
+    # 
+    # #--------------------------
+    # cv_predict(model, valid_X, train_data) %>%
+    #   reverse_one_hot() %>%
+      confusion_matrix_plot(model, valid_X, valid_target, train_data )
     model -> model_list[[f]]
     
     plot(history) -> plot_list[[f]]
