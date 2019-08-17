@@ -2,7 +2,9 @@
 title: "BBC text classification"
 author: Adam Wiśniewski
 date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: html_notebook
+output:
+  ioslides_presentation:
+    smaller: true
 ---
 
 
@@ -16,6 +18,10 @@ library(magrittr)
 library(rebus)
 library(keras)
 library(furrr)
+library(tfruns)
+library(superheat)
+library(caret)
+library(plotly)
 plan(multisession)
 #-----------
 setwd("bbc/")
@@ -34,10 +40,14 @@ data_load <- function(i, ...) {
 lapply(1:length(categories), function(i) data_load(i) )  %>% bind_rows() -> DATA
 DATA %<>% mutate(text = map_chr(text, unlist ))
 set.seed(1)
-sample(1:nrow(DATA), nrow(DATA)*0.2) -> test_index
+sample(1:nrow(DATA), nrow(DATA)*0.1) -> test_index
 DATA[-test_index, ] -> train_set
 DATA[test_index, ] -> test_set
 #--------------------------------------------
+# train_set %>%
+#   preprocess() -> zbior
+# 
+#--------------------------------------------------
 preprocess <- function(DATA,
                        variable = "main", no_folds = 10) {
   ################
@@ -88,7 +98,7 @@ preprocess <- function(DATA,
     rownames_to_column("id") %>%
     select(-name, -value, -path) %>%
     unnest_variable(variable) %>%
-    filter(stringr::str_length( word) >= 2)  %>%
+    #filter(stringr::str_length( word) >= 2)  %>%
     nest(-id, -category) %>%
     mutate(data = map_chr( data, collapse_word) ) %>%
     mutate(fold = folds) %>%
@@ -108,8 +118,8 @@ onehot_represenation <- function(jolo) {
   }
 }
 tokenize_text <- function(zbior,
-                          max_len = 100,
-                          max_words = 3e4, is_test = F, use_tf_idf = T,  ...){
+                          max_len = 128,
+                          max_words = 1024 * 25, is_test = F, use_tf_idf = T,  ...){
   if(is_test == F) {
     if(use_tf_idf == T){
       #--------------------
@@ -123,7 +133,7 @@ tokenize_text <- function(zbior,
         filter(value <= max_words) %>%
         select(value, word) ->> tokenization
       
-      to_sequence <- function(sentence,  ...) {
+      to_sequence <<- function(sentence,  ...) {
         sentence %>%
           str_split(" ") %>%
           unlist() %>%
@@ -170,7 +180,7 @@ tokenize_text <- function(zbior,
   }else if(is_test == T) {
     if(use_tf_idf == T){
       zbior$data %>%
-        future_map( . , to_sequence , .progress = TRUE)  -> sekwencja
+        map( . , to_sequence )  -> sekwencja
       data <- pad_sequences(sekwencja, maxlen = max_len)
       as_tibble(data) %>%
         mutate(target = as.factor(zbior$category)) %>% onehot_represenation() -> tibb
@@ -191,7 +201,7 @@ train_set %>%
   tokenize_text() -> DATA_tokenized
 #--------------------------------------------
 setwd("..")
-lines <- readLines("glove.6B.100d.txt")
+lines <- readLines("glove.6B.300d.txt")
 #-----------------------------------
 embeddings_index <- new.env(hash = T,
                             parent = emptyenv() )
@@ -199,6 +209,7 @@ cat("Loading embedding... \n")
 p <- progress_estimated(length(lines))
 ###############################
 options(expressions = 5e5)
+tictoc::tic()
 for (i in 1:length(lines)) {
   line <- lines[[i]]
   values <- strsplit(line, " ")[[1]]
@@ -206,16 +217,72 @@ for (i in 1:length(lines)) {
   embeddings_index[[word]] <- as.double(values[-1])
   p$tick()$print()
   #if(i %% 1e5 == 0) {gc()}
-}
+}#56.39
+tictoc::toc()
+###################
+names(embeddings_index) %>% tail()
+embeddings_index[["mayberg"]]
+###################################
+# 
+# embeddings_index2 <- new.env(hash = T,
+#                              parent = emptyenv() )
+# load_emb  <- function(i, ...){
+#     line <- lines[[i]]
+#     values <- strsplit(line, " ")[[1]]
+#     word <- values[[1]]
+#     #embeddings_index2[[word]] <- as.double(values[-1])
+#     data.table(word, values[-1] %>% t()) %>%
+#     return(.)
+# }
+# library(doFuture)
+# registerDoFuture()
+# mu <- 1.0
+# sigma <- 2.0
+# x <- foreach(i = 1:3,
+#              .export = c("mu", "sigma")) %do%
+#   { rnorm(i, mean = mu, sd = sigma) }
+# 
+# x <- foreach(i = 1:length(lines),
+#              .export = c("lines", "embeddings_index2")) %do%
+#              { load_emb(i) }
+# #######################
+# library(future.apply)
+# future_sapply(1:length(lines), load_emb,.progress = TRUE) -> elo
+# (1:length(lines), load_emb) -> dlo
+# 
+# foreach (i=1:length(lines),
+#          .combine=function(...) rbindlist(list(...)),
+#          .multicombine=TRUE) %dopar% load_emb(i) -> elo
+# 
+# 
+# load_emb(212) %>% names()
+# 
+# lines %>% map(., load_emb)
+# 
+# lines %>%
+#   as_tibble() %>%
+#   map(, load_emb)
+# 
+# lapply(list, function)
+# 
+# 
+# 
+# pmap(lines, load_emb) 
+# 
+# lapply(1:length(lines), function(embeddings_index2, lines, i) pull_lines(embeddings_index2, lines, i) )
+# 
+# pmap(1:length(lines), pull_lines(embeddings_index2, lines, i))
+############################################
 cat("Found", length(embeddings_index), "word vectors.\n")
 #-----------------------------------
-max_words = 3e4
-emdedding_dim <- 100
-max_len <- 100
+max_words = 1024 * 25
+emdedding_dim <- 300
+max_len <- 128
 #---------------------------------
 embedding_matrix <- array(0, c(max_words, emdedding_dim))
 q <- progress_estimated(length(names(word_index)))
 cat("Filling up the embedding matrix...\n")
+tictoc::tic()
 for (word in names(word_index)) {
   index <- word_index[[word]]
   if (index < max_words) {
@@ -225,18 +292,266 @@ for (word in names(word_index)) {
   }
   q$tick()$print()
 }
+tictoc::toc()
+#embedding_matrix %>%  write_rds(.,"embedding_matrix.rds")
+#read_rds("embedding_matrix.rds") -> embedding_matrix
+##################################
+#TRAINING
+##################################
+flagi <- flags(
+  flag_integer("first_bidirectional_units", 512), 
+  flag_numeric("first_bidirectional_drop", 0.05), 
+  flag_numeric("first_bidirectional_rec_drop", 0.1), 
+  
+  
+  flag_integer("second_bidirectional_units", 256), 
+  flag_numeric("second_bidirectional_drop", 0.05), 
+  flag_numeric("second_bidirectional_rec_drop", 0.1),
+  
+  
+  flag_integer("first_dense_units", 128),
+  flag_numeric("first_dense_drop", 0.2),
+  
+  flag_integer("second_dense_units", 64),
+  flag_numeric("second_dense_drop", 0.2)
+)
+
+#################################
+reverse_one_hot <- function(tmp) {
+  reverse_one_hot_iterator <- function(i, ...) {
+    tmp %>% as_tibble() %>%
+      .[i, ] %>%
+      which.max() %>%
+      names() %>%
+      return(.)
+  }
+  sapply(1:nrow(tmp), function(i) reverse_one_hot_iterator(i)) %>%
+    str_remove_all("target=") %>%
+    enframe(name = NULL) %>%
+    mutate(value = as.factor(value)) %>%
+    pull() %>%
+    return(.)
+}
+cv_predict <- function(model, valid_X,
+                       train_data # for colnames
+) {
+  model %>% predict(valid_X) %>%
+    as_tibble() %>%
+    set_names(train_data %>% as_tibble() %>% select(starts_with("target")) %>% colnames()) %>%
+    return(.)
+}
+confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
+  cv_predict(model, valid_X, train_data ) -> cross_validation_pred
+  confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
+  confuse_a_cat %>%
+    .$byClass %>% as.data.frame() %>% pull(`Balanced Accuracy`) -> Balanced_Accuracy
+  confuse_a_cat %>% .$table %>%
+    rbind( Balanced_Accuracy) %>%
+    superheat(  
+      X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
+      row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
+      column.title = "Reference",
+      legend = F)
+}
+#train_cross_validate <- function(dane, flagi, ... ) {
+ # progress <- progress_estimated((unique(dane$fold) %>% max()))
+ # list() -> accuracy_list
+  list() -> plot_list
+  list() -> history_list #
+  list() -> model_list #
+  list() -> cross_validation_pred_list #
+  list() -> whats_wrong_list #
+  list() -> confusion_matrix_list #
+  f <- 1
+  #for (f in sort(unique(dane$fold)) ) {
+    #####################################################
+    #MODEL ARCHITECTURE
+    #####################################################
+    layer_input(shape = list(NULL),
+                name = "words") -> layer_words
+    
+    layer_words %>%
+      layer_embedding(input_dim = max_words, output_dim = emdedding_dim, 
+                      input_length = max_len, name = "embedding") %>%
+      #bidirectional( layer_lstm(units = 128) ) %>%
+      bidirectional(layer_gru(units = flagi$first_bidirectional_units,
+                              dropout = flagi$first_bidirectional_drop,
+                              recurrent_dropout = flagi$first_bidirectional_rec_drop,
+                              return_sequences = TRUE), name = paste0("bidirectional_gru_", flagi$first_bidirectional_units)) %>%
+      layer_batch_normalization() %>%
+      #layer_activation_leaky_relu() %>%
+      layer_gru(units = flagi$second_bidirectional_units, #activation = "relu",
+                dropout = flagi$second_bidirectional_drop,
+                recurrent_dropout = flagi$second_bidirectional_rec_drop,
+                name = paste0("gru_", flagi$second_bidirectional_units)) %>%
+      layer_batch_normalization() %>%
+     # layer_activation_relu() %>%
+      # layer_flatten() %>%
+      layer_dense(units = flagi$first_dense_units , name = paste0("first_dense_", flagi$first_dense_units), use_bias = F) %>%
+      layer_batch_normalization() %>%
+      layer_activation_leaky_relu() %>%
+      layer_dropout(flagi$first_dense_drop, name = paste0("first_dropout_",flagi$first_dense_drop ) ) %>%
+      layer_dense(units = flagi$second_dense_units , name = paste0("second_dense_unit_", flagi$second_dense_units), use_bias = F) %>%
+      layer_batch_normalization() %>%
+      layer_activation_leaky_relu() %>%
+      layer_dropout(flagi$second_dense_drop,  name = paste0("second_dropout_",flagi$second_dense_drop ) ) %>%
+      layer_dense(units = 5, activation = "softmax") -> output
+    
+    model <- keras_model(inputs = layer_words,
+                         outputs = output )
+    
+    get_layer(model, name =  "embedding" ) %>%
+      set_weights(list(embedding_matrix)) %>%
+      freeze_weights()
+    
+    #summary(model)
+   #deepviz::plot_model(model)
+    model %>% compile(
+      optimizer = optimizer_adam(),
+      loss = "categorical_crossentropy",
+      metrics = c("acc")
+    )
+    ################################
+    callback <- list(
+      callback_early_stopping(
+        monitor = "val_acc",
+        min_delta = 0.001,
+        patience = 4,
+        restore_best_weights = T
+      ),  
+      # callback_model_checkpoint(
+      #   filepath = "my_model.h5", 
+      #   monitor = "val_acc",
+      #   save_best_only = TRUE  
+      # ),
+      callback_reduce_lr_on_plateau(
+        monitor = "val_acc",
+        min_delta = 0.01,
+        factor = 0.5,
+        patience = 1 ,
+        cooldown = 0,
+        verbose = 1
+      )
+    )
+    ###################################
+    cat("#################################### \n")
+    cat("\n Fold: ", f, "\n")
+    #---------------------------------------\
+    # f = 1
+    # dane %>%
+    #   filter(fold == f ) %>%
+    #   select(-fold) -> test_data
+    DATA_tokenized -> dane
+    dane[is.na(dane)] <- 0
+    #----------------------------------------
+    dane %>%
+      filter(fold != f ) %>%
+      select(-fold) -> train_data
+    
+    dane %>%
+      filter(fold == f ) %>%
+      select(-fold) -> valid_data
+    
+    train_data %>%
+      select(contains("target")) %>%
+      data.matrix() -> train_target
+    
+    train_data %>%
+      select(-one_of(train_target %>% colnames())) %>%
+      data.matrix() -> train_X
+    
+    valid_data %>%
+      select(contains("target")) %>%
+      data.matrix() -> valid_target
+    
+    valid_data %>%
+      select(-one_of(train_target %>% colnames())) %>%
+      data.matrix() -> valid_X
+    ####################################
+    #--------------------------------------
+    model %>%
+      fit(
+        verbose = 1,
+        x = train_X ,
+        y = train_target,
+        callbacks = callback,
+        validation_data = list(valid_X , valid_target),
+        epochs = 1, 
+        batch_size = 32 ) -> history_list[[f]]
+    
+    ###################
+    cv_predict(model, valid_X, train_data ) -> cross_validation_pred_list[[f]] 
+    
+    tibble(predicted = cross_validation_pred_list[[f]] %>% 
+             reverse_one_hot(), 
+           true = valid_target %>%
+             reverse_one_hot()) %>%
+      mutate_all(as.character) %>%
+      mutate(zgodny = predicted == true) %>%
+      rowid_to_column("id") %>%
+      filter(zgodny == F) %>%
+      select(-zgodny) -> whats_wrong
+    
+    retokenize_wrong  <- function(wrong_df, whats_wrong, word_index, ...) {
+      sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
+      retokenize_wrong_iterator  <- function(i, ...) {
+        
+        
+        
+        wrong_df[i, ] %>%
+          t() %>%
+          as_tibble() %>%
+          left_join(tidy_word_index, by =c("V1" = "x" )) %>%
+          pull(names) %>%
+          replace_na("0") %>%
+          return(.)
+      }
+      map(1:nrow(wrong_df), function(i) as_tibble(t( retokenize_wrong_iterator(i) %>% str_remove_all("0") %>% .[. != ""] %>% toString() )) ) %>%
+        bind_rows() %>%
+        bind_cols(whats_wrong , .) %>%
+        return(.)
+    }
+    
+    valid_X %>% as_tibble() %>% .[whats_wrong$id, ] -> wrong_df
+    
+
+    retokenize_wrong(wrong_df,whats_wrong, word_index) -> whats_wrong_list[[f]]
+ 
+    confusion_matrix_plot(model, valid_X, valid_target, train_data ) -> confusion_matrix_list[[f]]
+    model -> model_list[[f]]
+    {plot(history_list[[f]]) + 
+        ggtitle("Learning History") +
+        theme_minimal() +
+        theme(legend.position = "none") 
+    } %>%
+      ggplotly() -> plot_list[[f]]
+    #plot(history) -> plot_list[[f]]
+    #history -> history_list[[f]]
+    #cat("#################################### \n")
+    #accuracy_list[[f]] %>% print()
+    #cat("#################################### \n")
+   # progress$tick()$print()
+  #  k_clear_session()
+    # reset_states(model)
+  #}
+
+
 ```
 
-##Task
+##Zadanie
 
 + Naszym zadaniem jest klasyfikacja do 5 kategorii, tekstów pochodzących od BBC
 
 
-```{r}
-DATA %>% head(5) %>% select(name, category, text)
+```{r echo=FALSE}
+set.seed(1)
+DATA %>% group_by(category) %>% sample_n(1) %>% select(name, category, text)
 ```
 
-```{r echo=TRUE}
+
+##Kategorie
+
+```{r echo=F}
 ggsci::pal_d3() -> paletka
 DATA %>%
    select(category) %>%
@@ -244,41 +559,24 @@ DATA %>%
   geom_bar(color = "black") +
   ggsci::scale_fill_d3() +
   theme_minimal() +
-  ggtitle("Widzimy że target jest zbalansowany")
+  ggtitle("")
 ```
 
+##Preprocessing
 
 Na wstępie robimy preprocessing:  
 
-  + Usuwam num_pattern (one or more)
-  + Usuwam antiwords
+  + Usuwam num_pattern (jeden lub wiecej)
+  + Usuwam antiwords 
   + to_lower_case
   + Usuwam znaki specjalne
   + Zostawiam tylko słowa o długości conajmniej 2 
 
 Funkcja ta oddzielnie traktuje main i header.  
 
-```{r}
-DATA %>% 
-  preprocess() %>%
-  mutate(string_lenth = str_length(data)) %>%
-  select(-data) %>%
-  arrange(desc(string_lenth)) %>%
-  group_by(category) %>%
-  mutate(max_length_per_cat = max(string_lenth),
-            min_length_per_cat = min(string_lenth),
-         mean_length_per_cat = mean(string_lenth)) %>%
-  ungroup() %>%
-    ggplot(aes(x = category, y = string_lenth, fill = category)) +
-    #geom_boxplot(aes(x = category, y = string_lenth)) +
-    geom_violin(trim = FALSE) +
-    stat_summary( fun.data = "mean_sdl",  fun.args = list(mult = 1))+
-    ggsci::scale_fill_d3() +
-  ggtitle("Długośc stringów w kategoriach")+
-  theme_minimal()
-```
+##Długość artykułów
 
-```{r}
+```{r echo=FALSE}
 how_many_words <-  function(uno_line) {
   uno_line %>% str_split(" ") %>% unlist() %>% length() %>%
     return(.)
@@ -318,22 +616,25 @@ Z czego testowałem 50, 100 i 300 wymiarowe embeddingi.
 
 >By przedstawić w formie wizualnej wektory słów korzystam z techniki redukcji wymiarów **t-SNE**
 
+##SNE (Stochastic Neighbor Embedding)
+
  [**"Visualizing Data using t-SNE"**](https://lvdmaaten.github.io/publications/papers/JMLR_2008.pdf),  
  Laurens van der Maaten, Geoffrey Hinton, Journal of Machine Learning Research 9 (2008) 2579-2605
  
  Po krótce opiszę jego działanie.  
  
- ### SNE
  
- **PAIRWISE**
  $$HIGH \ DIM \ P(x_j|x_i) = \frac{exp(-||x_i - x_j||^2 / 2\sigma_i^2)}{\sum_{k\neq i} exp(-||x_i - x_k||^2 / 2\sigma_i^2)} \\
  LOW \ DIM \ Q(x_j|x_i) = \frac{exp(-||y_i - y_j||^2 )}{\sum_{k\neq i} exp(-||y_i - y_k||^2 )} \ , \ gdzie \ var = \frac{1}{\sqrt{2}} 
  $$
- Mając $P$ i $Q$ liczymy dywergencję  Kullback-Leibler
+ 
+Mając $P$ i $Q$ liczymy dywergencję  Kullback-Leibler
  
  $$COST = \sum_i KL(P_i, Q_i) = \sum_i \sum_j P(j|i) \times log(\frac{P(j|i)}{Q(j|i)})$$
  
- >Because the Kullback-Leibler divergence is not symmetric, different types of error in the pairwise distances in the low-dimensional map are not weighted equally. In particular, there is a large cost for using widely separated map points to represent nearby datapoints but there is only a small cost for using nearby map points to represent widely separated datapoints. This small cost comes from wasting some of the probability mass in the relevant Q distributions. In other words, the SNE cost function focuses on retaining the local structure of the data in the map
+ ---
+ 
+ >Because the Kullback-Leibler divergence is not symmetric, different types of error in the pairwise distances in the low-dimensional map are not weighted equally. In particular, there is a large cost for using widely separated map points to represent nearby datapoints but there is only a small cost for using nearby map points to represent widely separated datapoints. This small cost comes from wasting some of the probability mass in the relevant Q distributions. In other words, the SNE cost function focuses on retaining the local structure of the data in the map.
  
  
  Wariancja $\sigma_i$ rozkładu gaussowskiego o średniej $x_i$ dla **każdego** wielowymiarowego wektora jest związana z hiperparametrem *perplexity*. Wybór $\sigma_i$ indukuje rozkład prawdopodobieństwa $P_i$ dla wszystkich punktów, z entropią układu monotonicznie rosnącą wraz z rosnącym $\sigma_i$.
@@ -345,7 +646,7 @@ $$Perp(P_i) = 2^{H(P_i)} = 2^{- \sum_j P(j|i) \times log_2(P(j|i))}$$
 
 Autor poleca $Perp \in [5,50]$ 
 
-###t-SNE
+##t-SNE
 
 t-SNE różni się od SNE wykorzystaniem rozkładu Cauchy zamiast Gaussa.
 
@@ -353,14 +654,27 @@ t-SNE różni się od SNE wykorzystaniem rozkładu Cauchy zamiast Gaussa.
 $$LOW \ DIM \ Q(x_j|x_i) = \frac{exp(-||y_i - y_j||^2 )}{\sum_{k\neq i} exp(-||y_i - y_k||^2 )} \  \rightarrow \
 \frac{(1 + ||y_i - y_j||)^{-1}}{\sum_{k\neq i}(1 + ||y_k-y_j||)^{-1}}$$
 
-```{r}
+```{r include=FALSE}
 knitr::include_graphics("tsne_work.png")
 ```
 
-Korzystając z 100-d embeddingu glove, tworzę tf-idf, wybieram top 500 per category, jeśli słowo jest w wiecej niż  1 kategorii wybieram jeden rekord o wyższym tf-idf.
+##Prawo Zipf'a
 
 
-```{r include=FALSE}
+Heurystyczne Prawo Zipf'a stonowi iż częstotliwość występowania danego słowa jest odwrotnie proporcjonalna do jego *rangi*
+
+$$freq \sim \frac{1}{rank}$$  
+
+
+$$tf(slowo, artykul) = \frac{n_{slowa \ w \ artykule}}{\sum n_{ liczby\ wystapien\ slow\ \ w \ artukule}} 
+\\ idf(slowo) = ln(\frac{n_{artykulow \ w \ korpusie}}{n_{artykulow \ zawierajacych \ slowo}}) $$
+
+##Embedding visualization
+
+Korzystając z 300-d embeddingu glove, tworzę tf-idf, wybieram top $n$ per category, jeśli słowo jest w wiecej niż  1 kategorii wybieram jeden rekord o wyższym tf-idf.
+
+
+```{r warning=FALSE, include=FALSE, echo=F}
 library(Rtsne)
 library(plotly)
 library(ggsci)
@@ -423,6 +737,7 @@ show_emb <- function(DATA, embeddings_index, variable = "main", top_idf = 500, d
                 "tf_idf: %{marker.size:, }",
                 "<extra></extra>"
               )
+
       ) %>%
       add_markers() %>%
       layout(title = "t-SNE on embedding") -> plocik
@@ -436,6 +751,7 @@ show_emb <- function(DATA, embeddings_index, variable = "main", top_idf = 500, d
                 "tf_idf: %{marker.size:, }",
                 "<extra></extra>"
               )
+
       ) %>%
       add_markers() %>%
       layout(title = "t-SNE on embedding") -> plocik
@@ -447,12 +763,84 @@ show_emb <- function(DATA, embeddings_index, variable = "main", top_idf = 500, d
 ```
 
 
-```{r}
+```{r echo=F, fig.height=6, fig.width=6, warning=FALSE}
 show_emb(train_set, embeddings_index, dims = 3, perplex = 7) -> tsne_3dim
 tsne_3dim
 ```
-```{r}
+
+---
+
+```{r echo=F, fig.height=6, fig.width=6, warning=FALSE}
 show_emb(train_set, embeddings_index, dims = 2, perplex = 7) -> tsne_2dim
 tsne_2dim
 ```
 
+##Model
+
+
+
+By dokonać klasyfikacji używam rekurencyjnej sieci neuronowej o następującej architekturze:
+
+```{r fig.height=5, echo=F}
+deepviz::plot_model(model_list[[f]])
+```
+
+---
+
+Z następującymi parametrami:
+
+```{r, echo=F}
+ summary(model_list[[f]])
+```
+
+##Trening
+
+```{r, echo=F}
+plot_list[[f]]
+```
+
+##Confusion Matrix (Validation set)
+
+```{r fig.height=6, fig.width= 8, echo=F}
+confusion_matrix_plot(model_list[[f]], valid_X, valid_target, train_data )
+```
+
+Obserwacje źle sklasyfikowane na zbiorze walidacyjnnym
+
+```{r, echo=F}
+whats_wrong_list[[f]]
+```
+
+##Performace on test set
+
+```{r, echo=F}
+test_set %>%
+  preprocess( variable = "main") %>%
+  tokenize_text(is_test = T) -> test_tokenized
+
+  test_tokenized %>%
+    select(contains("target")) %>%
+    data.matrix() -> test_target
+  
+  test_tokenized %>%
+    select(-one_of(test_target %>% colnames())) %>%
+    data.matrix() -> test_X
+  
+  
+  model_list[[f]] %>%
+    # load_model_weights_hdf5("my_model.h5") %>%
+    evaluate(test_X, test_target) %>%
+    as_tibble() -> predicted_test
+
+```
+
+```{r fig.height=6, fig.width=8, echo =FALSE}
+ confusion_matrix_plot(model_list[[f]], test_X, test_target, test_target)
+```
+
+##To  do
+
+  + Oddzielny input z nagłówków
+  + Zbudowanie meta-modelu na predykcji z 5 modeli sieci neuronowej (blending/stack ensemble)
+  + Sprawdzenie obserwacji które sprawiają problem przy klasyfikacji - feature engineering
+  + 5 - krotny test set wraz z 5 - krotną tokenizacją
