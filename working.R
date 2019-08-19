@@ -288,8 +288,8 @@ read_rds("embedding_matrix.rds") -> embedding_matrix
 ##################################
 flagi <- flags(
   flag_integer("first_bidirectional_units", 512), 
-  flag_numeric("first_bidirectional_drop", 0.2), 
-  flag_numeric("first_bidirectional_rec_drop", 0.2), 
+  flag_numeric("first_bidirectional_drop", 0.1), 
+  flag_numeric("first_bidirectional_rec_drop", 0.1), 
   
   
   flag_integer("second_bidirectional_units", 256), 
@@ -343,10 +343,14 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
 }
 train_cross_validate <- function(dane, flagi, ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
-  list() -> accuracy_list
+ # list() -> accuracy_list
   list() -> plot_list
-  list() -> history_list
-  list() -> model_list
+  list() -> history_list #
+  list() -> model_list #
+  list() -> cross_validation_pred_list #
+  list() -> whats_wrong_list #
+  list() -> confusion_matrix_list #
+  
   for (f in sort(unique(dane$fold)) ) {
     #####################################################
     #MODEL ARCHITECTURE
@@ -361,23 +365,24 @@ train_cross_validate <- function(dane, flagi, ... ) {
       bidirectional(layer_gru(units = flagi$first_bidirectional_units,
                               dropout = flagi$first_bidirectional_drop,
                               recurrent_dropout = flagi$first_bidirectional_rec_drop,
-                              return_sequences = TRUE), name = "bidirectional_gru") %>%
+                              return_sequences = TRUE), name = paste0("bidirectional_gru_", flagi$first_bidirectional_units)) %>%
       layer_batch_normalization() %>%
       layer_activation_leaky_relu() %>%
       layer_gru(units = flagi$second_bidirectional_units, #activation = "relu",
                 dropout = flagi$second_bidirectional_drop,
-                recurrent_dropout = flagi$second_bidirectional_rec_drop) %>%
+                recurrent_dropout = flagi$second_bidirectional_rec_drop,
+                name = paste0("gru_", flagi$second_bidirectional_units)) %>%
       layer_batch_normalization() %>%
       layer_activation_relu() %>%
       # layer_flatten() %>%
-      layer_dense(units = flagi$first_dense_units , name = "first_dense_unit", use_bias = F) %>%
+      layer_dense(units = flagi$first_dense_units , name = paste0("first_dense_", flagi$first_dense_units), use_bias = F) %>%
       layer_batch_normalization() %>%
       layer_activation_leaky_relu() %>%
-      layer_dropout(flagi$first_dense_drop) %>%
-      layer_dense(units = flagi$second_dense_units , name = "2_dense_unit", use_bias = F) %>%
+      layer_dropout(flagi$first_dense_drop, name = paste0("first_dropout_",flagi$first_dense_drop ) ) %>%
+      layer_dense(units = flagi$second_dense_units , name = paste0("second_dense_unit_", flagi$second_dense_units), use_bias = F) %>%
       layer_batch_normalization() %>%
       layer_activation_leaky_relu() %>%
-      layer_dropout(flagi$second_dense_drop) %>%
+      layer_dropout(flagi$second_dense_drop,  name = paste0("second_dropout_",flagi$second_dense_drop ) ) %>%
       layer_dense(units = 5, activation = "softmax") -> output
     
     model <- keras_model(inputs = layer_words,
@@ -451,153 +456,35 @@ train_cross_validate <- function(dane, flagi, ... ) {
       select(-one_of(train_target %>% colnames())) %>%
       data.matrix() -> valid_X
     ####################################
- 
+    model %>%
+      fit(
+        verbose = 1,
+        x = train_X ,
+        y = train_target,
+        callbacks = callback,
+        validation_data = list(valid_X , valid_target),
+        epochs = 12, 
+        batch_size = 64 ) -> history_list[[f]]
     
+    ###################
+    cv_predict(model, valid_X, train_data ) -> cross_validation_pred[[f]] 
     
-    # plot_roc <- function(model, what_title ="") {
-    #   ifelse(nrow(model) > 5, 0.6, 0.8) -> alpha_col
-    #   
-    #   model$roc %>% 
-    #     bind_rows() %>%
-    #     as_tibble() %>%
-    #     ggplot(aes(x = fpr, y = tpr, color = algorithm)) +
-    #     #geom_point(size =0.5 )+
-    #     #geom_smooth(method = "loess") +
-    #     geom_line(linetype = 1, size = 1, alpha = alpha_col) +
-    #     #scale_x_log10()+
-    #     scale_color_jco()+
-    #     geom_segment(aes(x=0,y=0,xend = 1, yend = 1), linetype = 2, color = "gray") +
-    #     xlab("False positive rate") +
-    #     ylab("True positive rate")+
-    #     labs(title = paste0("ROC curve for: ", what_title ) ) 
-    # }
-
-    
-#confusion_matrix_plot(model, valid_X, valid_target, train_data)
-      
-    
-    #library(superheat)
-    
-    # caret::confusionMatrix(data=  reverse_one_hot(tmp),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
-    # 
-    # 
-    # confuse_a_cat %>%
-    #   .$byClass %>% as.data.frame() %>% pull(`Balanced Accuracy`) -> Balanced_Accuracy
-    # 
-    # 
-    # order(mtcars$mpg)
-    # 
-    # 
-    # confuse_a_cat %>% .$table %>%
-    #   rbind( Balanced_Accuracy) %>%
-    #   superheat(  
-    #     X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
-    #     row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
-    #     column.title = "Reference",
-    #     legend = F)
-   
-    #-------------------------------- 
-    # table(reverse_one_hot(valid_target), 
-    #       reverse_one_hot(tmp)) 
-    # 
-    
-    # plot_confusion <- function(confusion_matrix, valid_absolute_mcc, model_id, algorithm ) {
-    #   confusion_matrix %>%
-    #     as.data.frame() -> confusion_df
-    #   
-    #   confusion_df%>%
-    #     head(2) %>%
-    #     set_rownames(c("no", "yes")) %>%
-    #     select(1,2, "Error") %>%
-    #     as.matrix() %>%
-    #     superheat(#scale = T,
-    #       X.text = round(as.matrix(.), 3),order.rows = order( rownames(.) ,decreasing = T),
-    #       row.title = "True",
-    #       column.title = "Predicted",
-    #       legend = F,
-    #       title.size = 5, title.alignment = "center",
-    #       title = paste0("Confusion Matrix for \n",  algorithm, "\n with max absolute_mcc = ", round(valid_absolute_mcc ,2))
-    #     )
-    # }
-    # 
-   #  
-   #  table(as.matrix(valid_target), as.matrix(tmp)) %>% caret::confusionMatrix()
-   #  
-   #  #tmp %>% which(max, arr.ind = T)
-   #  
-   #  colmax <- function(data_frame) {
-   #    data_frame %>% apply(., 2, max ) %>% return(.)
-   #  }
-   #  
-   #  
-   # which( colmax(tmp) == col_number(tmp))
-    # history$metrics %>%
-    #   as_tibble() %>% tail(1) %>% 
-    #   select(contains("acc")) %>% 
-    #   select(contains("val")) %>%
-    #   mutate(fold = f) -> accuracy_list[[f]]
-    #--------------------------------------
-    reverse_one_hot <- function(tmp) {
-      reverse_one_hot_iterator <- function(i, ...) {
-        tmp %>% as_tibble() %>%
-          .[i, ] %>%
-          which.max() %>%
-          names() %>%
-          return(.)
-      }
-      sapply(1:nrow(tmp), function(i) reverse_one_hot_iterator(i)) %>%
-        str_remove_all("target=") %>%
-        enframe(name = NULL) %>%
-        mutate(value = as.factor(value)) %>%
-        pull() %>%
-        return(.)
-    }
-    cv_predict <- function(model, valid_X,
-                           train_data # for colnames
-    ) {
-      model %>% predict(valid_X) %>%
-        as_tibble() %>%
-        set_names(train_data %>% as_tibble() %>% select(starts_with("target")) %>% colnames()) %>%
-        return(.)
-    }
-    confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
-      cv_predict(model, valid_X, train_data ) -> cross_validation_pred
-      confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
-      confuse_a_cat %>%
-        .$byClass %>% as.data.frame() %>% pull(`Balanced Accuracy`) -> Balanced_Accuracy
-      confuse_a_cat %>% .$table %>%
-        rbind( Balanced_Accuracy) %>%
-        superheat(  
-          X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
-          row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
-          column.title = "Reference",
-          legend = F)
-    }
-    
-    
-    cv_predict(model, valid_X, train_data ) -> cross_validation_pred 
-    
-    tibble(predicted = cross_validation_pred %>% 
+    tibble(predicted = cross_validation_pred[[f]] %>% 
              reverse_one_hot(), 
            true = valid_target %>%
              reverse_one_hot()) %>%
+      mutate_all(as.character) %>%
       mutate(zgodny = predicted == true) %>%
       rowid_to_column("id") %>%
       filter(zgodny == F) %>%
       select(-zgodny) -> whats_wrong
     
-    
-    valid_X %>% as_tibble() %>% .[whats_wrong$id, ] -> wrong_df
-    
-    #replace(c(a=1, b=2, c=3, d=4), "b", 10)
-    
-    
-    sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
-    
-    
-    
-    retokenize_wrong  <- function(wrong_df, whats_wrong, word_index) {
+    retokenize_wrong  <- function(wrong_df, whats_wrong, word_index, ...) {
+      sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
       retokenize_wrong_iterator  <- function(i, ...) {
+        
+        
+        
         wrong_df[i, ] %>%
           t() %>%
           as_tibble() %>%
@@ -611,31 +498,32 @@ train_cross_validate <- function(dane, flagi, ... ) {
         bind_cols(whats_wrong , .) %>%
         return(.)
     }
-
-    retokenize_wrong(wrong_df,whats_wrong, word_index)
- 
-    # map(1:nrow(wrong_df), function(i) as_tibble(t( retokenize_wrong_iterator(i) %>% str_remove_all("0") %>% .[. != ""] %>% toString() )) ) %>%
-    #   bind_rows() 
-    # #word_index %>% map(~as.numeric(.x)[1])
-    # map(1:nrow(wrong_df), function(i) as_tibble(t(retokenize_wrong_iterator(i))) ) %>% str
-    # 
-    # #--------------------------
-    # cv_predict(model, valid_X, train_data) %>%
-    #   reverse_one_hot() %>%
-      confusion_matrix_plot(model, valid_X, valid_target, train_data )
-    model -> model_list[[f]]
     
-    plot(history) -> plot_list[[f]]
-    history -> history_list[[f]]
-    cat("#################################### \n")
+    valid_X %>% as_tibble() %>% .[whats_wrong$id, ] -> wrong_df
+    
+
+    retokenize_wrong(wrong_df,whats_wrong, word_index) -> whats_wrong_list[[f]]
+ 
+    confusion_matrix_plot(model, valid_X, valid_target, train_data ) -> confusion_matrix_list[[f]]
+    #model -> model_list[[f]]
+    {plot(history) + 
+        ggtitle("Learning History") +
+        theme_minimal() +
+        theme(legend.position = "none") 
+    } %>%
+      ggplotly() -> plot_list[[f]]
+    #plot(history) -> plot_list[[f]]
+    #history -> history_list[[f]]
+    #cat("#################################### \n")
     #accuracy_list[[f]] %>% print()
-    cat("#################################### \n")
+    #cat("#################################### \n")
     progress$tick()$print()
     k_clear_session()
     # reset_states(model)
   }
   return(list(
-    plots = plot_list, metrics = history_list, model = model_list
+    plots = plot_list, history  = history_list, model = model_list,
+    cv_prediction = cross_validation_pred_list, wrong = whats_wrong_list
   ))
 }
 train_cross_validate(dane = DATA_tokenized, flagi) -> analisis
