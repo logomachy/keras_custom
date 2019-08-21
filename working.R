@@ -13,6 +13,24 @@ library(caret)
 library(plotly)
 library(uwot)
 plan(multisession)
+#--------------
+# library(reticulate)
+# 
+# library(tensorflow)
+#use_condaenv("r-reticulate")
+#install_keras(method = "conda", tensorflow = "gpu")
+
+# install_tensorflow(version= "gpu")
+# 
+# with(tf$device("/gpu:0"), {
+#   const <- tf$constant(42)
+# })
+# 
+# reticulate::py_config()
+# 
+# sess <- tf$Session()
+# sess$run(const)
+
 #-----------
 setwd("bbc/")
 #-------------
@@ -288,24 +306,42 @@ tictoc::toc()
 ##################################
 #TRAINING
 ##################################
+# flagi <- flags(
+#   flag_integer("first_bidirectional_units", 512), 
+#   flag_numeric("first_bidirectional_drop", 0.1), 
+#   flag_numeric("first_bidirectional_rec_drop", 0.1), 
+#   
+#   
+#   flag_integer("second_bidirectional_units", 256), 
+#   flag_numeric("second_bidirectional_drop", 0.2), 
+#   flag_numeric("second_bidirectional_rec_drop", 0.2),
+#   
+#   
+#   flag_integer("first_dense_units", 128),
+#   flag_numeric("first_dense_drop", 0.2),
+#   
+#   flag_integer("second_dense_units", 64),
+#   flag_numeric("second_dense_drop", 0.2)
+# )
+
+
 flagi <- flags(
-  flag_integer("first_bidirectional_units", 512), 
+  flag_integer("first_bidirectional_units", 64), 
   flag_numeric("first_bidirectional_drop", 0.1), 
   flag_numeric("first_bidirectional_rec_drop", 0.1), 
   
   
-  flag_integer("second_bidirectional_units", 256), 
+  flag_integer("second_bidirectional_units", 32), 
   flag_numeric("second_bidirectional_drop", 0.2), 
   flag_numeric("second_bidirectional_rec_drop", 0.2),
   
   
-  flag_integer("first_dense_units", 128),
+  flag_integer("first_dense_units", 32),
   flag_numeric("first_dense_drop", 0.2),
   
-  flag_integer("second_dense_units", 64),
+  flag_integer("second_dense_units", 16),
   flag_numeric("second_dense_drop", 0.2)
 )
-
 #################################
 reverse_one_hot <- function(tmp) {
   reverse_one_hot_iterator <- function(i, ...) {
@@ -466,7 +502,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
         callbacks = callback,
         validation_data = list(valid_X , valid_target),
         epochs = 10, 
-        batch_size = 64 ) -> history_list[[f]]
+        batch_size = 8 ) -> history_list[[f]]
     
     ###################
     cv_predict(model, valid_X, train_data ) -> cross_validation_pred_list[[f]] 
@@ -554,7 +590,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
             ) %>%
             ggplot(aes(V1,V2)) +
             geom_point(aes(color = predicted, shape = true)) -> umap_plot2
-          ggplotly(umap_plot2)  
+          ggplotly(umap_plot2) 
           
           
           good %>% select(word,id,predicted,true) %>% 
@@ -564,7 +600,14 @@ train_cross_validate <- function(dane, flagi, ... ) {
                      n_neighbors = 15, learning_rate = 0.5, init = "random", n_components = 3)
               )
             ) %>%
-          plot_ly(data = ., x=~V1, y=~V2, z=~V3, type="scatter3d", mode="markers", color=~true,  text = ~word )
+            mutate(category = paste0(predicted," | ", true)) %>%
+          plot_ly(data = ., x=~V1, y=~V2, z=~V3, type="scatter3d", mode="markers", size = 1,  color=~category,  text = ~category , 
+                  hovertemplate = paste(
+                    "<b>%{text}</b><br><br>",
+                    #"Number Employed: %{marker.size:,}",
+                    "<extra></extra>"
+                  )
+                  )
           
       # mutate(word,id,predicted,true, 
       #            umap(.  %>% select(-word,-id,-predicted,-true), n_neighbors = 5, learning_rate = 0.5, init = "random") )
