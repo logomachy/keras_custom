@@ -306,42 +306,42 @@ tictoc::toc()
 ##################################
 #TRAINING
 ##################################
+flagi <- flags(
+  flag_integer("first_bidirectional_units", 512),
+  flag_numeric("first_bidirectional_drop", 0.1),
+  flag_numeric("first_bidirectional_rec_drop", 0.1),
+
+
+  flag_integer("second_bidirectional_units", 256),
+  flag_numeric("second_bidirectional_drop", 0.2),
+  flag_numeric("second_bidirectional_rec_drop", 0.2),
+
+
+  flag_integer("first_dense_units", 128),
+  flag_numeric("first_dense_drop", 0.2),
+
+  flag_integer("second_dense_units", 64),
+  flag_numeric("second_dense_drop", 0.2)
+)
+
+
 # flagi <- flags(
-#   flag_integer("first_bidirectional_units", 512), 
+#   flag_integer("first_bidirectional_units", 64), 
 #   flag_numeric("first_bidirectional_drop", 0.1), 
 #   flag_numeric("first_bidirectional_rec_drop", 0.1), 
 #   
 #   
-#   flag_integer("second_bidirectional_units", 256), 
+#   flag_integer("second_bidirectional_units", 32), 
 #   flag_numeric("second_bidirectional_drop", 0.2), 
 #   flag_numeric("second_bidirectional_rec_drop", 0.2),
 #   
 #   
-#   flag_integer("first_dense_units", 128),
+#   flag_integer("first_dense_units", 32),
 #   flag_numeric("first_dense_drop", 0.2),
 #   
-#   flag_integer("second_dense_units", 64),
+#   flag_integer("second_dense_units", 16),
 #   flag_numeric("second_dense_drop", 0.2)
 # )
-
-
-flagi <- flags(
-  flag_integer("first_bidirectional_units", 64), 
-  flag_numeric("first_bidirectional_drop", 0.1), 
-  flag_numeric("first_bidirectional_rec_drop", 0.1), 
-  
-  
-  flag_integer("second_bidirectional_units", 32), 
-  flag_numeric("second_bidirectional_drop", 0.2), 
-  flag_numeric("second_bidirectional_rec_drop", 0.2),
-  
-  
-  flag_integer("first_dense_units", 32),
-  flag_numeric("first_dense_drop", 0.2),
-  
-  flag_integer("second_dense_units", 16),
-  flag_numeric("second_dense_drop", 0.2)
-)
 #################################
 reverse_one_hot <- function(tmp) {
   reverse_one_hot_iterator <- function(i, ...) {
