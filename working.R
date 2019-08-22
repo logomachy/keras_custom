@@ -380,7 +380,7 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
       column.title = "Reference", title = paste0("Confusion Matrix fold ", f) ,
       legend = F)
 }
-train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 256,  ... ) {
+train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 32,  ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
  # list() -> accuracy_list
   list() -> plot_list
@@ -665,7 +665,7 @@ train_cross_validate(dane = DATA_tokenized, flagi) -> analisis
 #read_rds("analisis.rds") -> analisis
 
 
-analisis$history[[1]]$metrics$val_acc %>% max()
+#analisis$history[[1]]$metrics$val_acc %>% max()
 
 
 plot_folds_acc <- function(analisis) {
@@ -687,16 +687,30 @@ plot_folds_acc <- function(analisis) {
 plot_folds_acc(analisis)
 
 
-analisis$cv_prediction[[1]] %>% reverse_one_hot()
+#analisis$cv_prediction[[1]] %>% reverse_one_hot()
 
 
-analisis$cv_prediction %>%
-  map(~reverse_one_hot(.x))
+# analisis$cv_prediction %>%
+#   map(~reverse_one_hot(.x))
+
+
+plot_confusion <- function() {
+  plot_confusion_iterator <- function(i) {
+     cowplot::ggdraw() + cowplot::draw_image(paste0("confusion_matrix_fold_", i), scale = 0.9) %>%
+      return(.)
+  }
+  lapply(1:5, function(i) plot_confusion_iterator(i)) %>%
+    return(.)
+}
+plot_confusion() -> confusion_matrix_list
+confusion_matrix_list %>%
+  cowplot::plot_grid(plotlist = ., ncol = 2)
+
 
 #################################
-analisis$metrics[[1]] %>% str()
-analisis$plots[[1]]
-analisis$model[[1]]
+# analisis$metrics[[1]] %>% str()
+# analisis$plots[[1]]
+# analisis$model[[1]]
 #################################
 test_set %>%
   preprocess( variable = "main") %>%
