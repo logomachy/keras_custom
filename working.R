@@ -12,6 +12,7 @@ library(superheat)
 library(caret)
 library(plotly)
 library(uwot)
+library(cowplot)
 plan(multisession)
 #--------------
 # library(reticulate)
@@ -57,7 +58,7 @@ DATA[test_index, ] -> test_set
 # 
 #--------------------------------------------------
 preprocess <- function(DATA,
-                       variable = "main", no_folds = 10) {
+                       variable = "main", no_folds = 5) {
   ################
   # HELPER FUNCTIONS
   remove_and_split <- function(DATA, ...) {
@@ -360,13 +361,13 @@ reverse_one_hot <- function(tmp) {
 }
 cv_predict <- function(model, valid_X,
                        train_data # for colnames
-) {
+                       ) {
   model %>% predict(valid_X) %>%
     as_tibble() %>%
     set_names(train_data %>% as_tibble() %>% select(starts_with("target")) %>% colnames()) %>%
     return(.)
 }
-confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
+confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
   cv_predict(model, valid_X, train_data ) -> cross_validation_pred
   confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
   confuse_a_cat %>%
@@ -376,10 +377,10 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data) {
     superheat(  
       X.text = round(as.matrix(.), 3), order.rows = order( rownames(.) ,decreasing = F),
       row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
-      column.title = "Reference",
+      column.title = "Reference", title = paste0("Confusion Matrix fold ", f) ,
       legend = F)
 }
-train_cross_validate <- function(dane, flagi, ... ) {
+train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 256,  ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
  # list() -> accuracy_list
   list() -> plot_list
@@ -387,7 +388,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
   list() -> model_list #
   list() -> cross_validation_pred_list #
   list() -> whats_wrong_list #
-  list() -> confusion_matrix_list #
+ # list() -> confusion_matrix_list #
   
   for (f in sort(unique(dane$fold)) ) {
     #####################################################
@@ -501,11 +502,10 @@ train_cross_validate <- function(dane, flagi, ... ) {
         y = train_target,
         callbacks = callback,
         validation_data = list(valid_X , valid_target),
-        epochs = 10, 
-        batch_size = 8 ) -> history_list[[f]]
-    
+        epochs = epoczki, 
+        batch_size = bacz ) -> history_list[[f]]
     ###################
-    cv_predict(model, valid_X, train_data ) -> cross_validation_pred_list[[f]] 
+    cv_predict(model, valid_X, train_data )  -> cross_validation_pred_list[[f]] 
     
     tibble(predicted = cross_validation_pred_list[[f]] %>% 
              reverse_one_hot(), 
@@ -516,7 +516,7 @@ train_cross_validate <- function(dane, flagi, ... ) {
       rowid_to_column("id") %>%
       filter(zgodny == F) %>%
       select(-zgodny) -> whats_wrong
-    
+    #----------------------
     retokenize_wrong  <- function(wrong_df, whats_wrong, word_index, ...) {
       sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
       retokenize_wrong_iterator  <- function(i, ...) {
@@ -534,25 +534,27 @@ train_cross_validate <- function(dane, flagi, ... ) {
         #rename(word = )
         return(.)
     }
-    
-    valid_X %>% as_tibble() %>% .[whats_wrong$id, ] -> wrong_df
-    
-
-    retokenize_wrong(wrong_df,whats_wrong, word_index) -> whats_wrong_list[[f]]
- 
+    #---------------------
+    valid_X %>% as_tibble() %>%
+      .[whats_wrong$id, ] %>%
+      retokenize_wrong( . ,whats_wrong, word_index) -> whats_wrong_list[[f]]
     #--------------------------------------------------
-    whats_wrong_list[[f]] %>%
-      unnest_tokens(word, V1 ) -> unnested_wrong
-      
+    # to do show embedding per id 
     
-    find_emb  <- function(term_freq_df, embeddings_index, i,  ...) {
-      tibble(word = term_freq_df$word[i]) %>%
-        bind_cols(as_tibble(as_tibble(embeddings_index[[term_freq_df$word[i]]]) %>% t())) %>%
-        return(.)
-    }
+    # whats_wrong_list[[f]] %>%
+    #   unnest_tokens(word, V1 ) -> unnested_wrong
+    #   
+    # 
+    # find_emb  <- function(term_freq_df, embeddings_index, i,  ...) {
+    #   tibble(word = term_freq_df$word[i]) %>%
+    #     bind_cols(as_tibble(as_tibble(embeddings_index[[term_freq_df$word[i]]]) %>% t())) %>%
+    #     return(.)
+    # }
+    # 
+    # map_df(1:nrow(unnested_wrong), function(i) find_emb(unnested_wrong, embeddings_index, i) ) %>%
+    #   right_join(unnested_wrong, by = "word")  %>% select(word, id, predicted, true, everything()) -> data_after_emb
     
-    map_df(1:nrow(unnested_wrong), function(i) find_emb(unnested_wrong, embeddings_index, i) ) %>%
-      right_join(unnested_wrong, by = "word")  %>% select(word, id, predicted, true, everything()) -> data_after_emb
+    #-------------------------------------
     #data_after_emb[is.na(data_after_emb) %>% which(arr.ind = T)]
     
     #data_after_emb  %>% .[is.na(data_after_emb) %>% which(arr.ind = T)]
@@ -562,53 +564,66 @@ train_cross_validate <- function(dane, flagi, ... ) {
       
       
     # select(-word,-id,-predicted, -true) %>% .[!duplicated(.), ] -> not_duplicated
-
-     
-     data_after_emb %>%
-       distinct_at(. ,vars(paste0("V",1:ncol(data_after_emb %>% select(-word,-id,-predicted,-true)))) ,.keep_all = TRUE) -> good
-     good[is.na(good)] <- 0
-    # good %>%
-       
+    #--------------------------------------
     
-       good %>% select(word,id,predicted,true) %>% 
-         bind_cols(
-           as_tibble(
-             umap(good  %>% select(-word,-id,-predicted,-true) , n_neighbors = 15, learning_rate = 0.5, init = "random", n_components = 2)
-             )
-           ) %>%
-         ggplot(aes(V1,V2)) +
-          geom_point(aes(color = predicted, shape = true)) -> umap_plot
-          ggplotly(umap_plot)
-     
+    #  data_after_emb %>%
+    #    distinct_at(. ,vars(paste0("V",1:ncol(data_after_emb %>% select(-word,-id,-predicted,-true)))) ,.keep_all = TRUE) -> good
+    #  good[is.na(good)] <- 0
+    # # good %>%
+    #    
+    # 
+    #    good %>% select(word,id,predicted,true) %>% 
+    #      bind_cols(
+    #        as_tibble(
+    #          umap(good  %>% select(-word,-id,-predicted,-true) , n_neighbors = 3, learning_rate = 0.05, init = "random", n_components = 2)
+    #          )
+    #        ) %>%
+    #      ggplot(aes(V1,V2)) +
+    #       geom_point(aes(color = predicted, shape = true)) -> umap_plot
+    #       ggplotly(umap_plot)
+    #  
+    #       good  %>%
+    #         group_by( id) %>%
+    #         summarise(text = str_c(word, collapse = " ")) %>%
+    #         ungroup()
+    #       
+    #       tmp$data[[1]] %>% 
+    #         
+    #         
+    #         tidy_austen %>% 
+    #         group_by(book, linenumber) %>% 
+    #         summarize(text = str_c(word, collapse = " ")) %>%
+    #         ungroup()
           
-          good %>% select(word,id,predicted,true) %>% 
-            bind_cols(
-              as_tibble(
-                umap(good  %>% select(-word,-id,-predicted,-true) ,y = as.factor(.$true), 
-                     n_neighbors = 15, learning_rate = 0.5, init = "random", n_components = 2)
-              )
-            ) %>%
-            ggplot(aes(V1,V2)) +
-            geom_point(aes(color = predicted, shape = true)) -> umap_plot2
-          ggplotly(umap_plot2) 
-          
-          
-          good %>% select(word,id,predicted,true) %>% 
-            bind_cols(
-              as_tibble(
-                umap(good  %>% select(-word,-id,-predicted,-true) ,y = as.factor(.$true), 
-                     n_neighbors = 15, learning_rate = 0.5, init = "random", n_components = 3)
-              )
-            ) %>%
-            mutate(category = paste0(predicted," | ", true)) %>%
-          plot_ly(data = ., x=~V1, y=~V2, z=~V3, type="scatter3d", mode="markers", size = 1,  color=~category,  text = ~category , 
-                  hovertemplate = paste(
-                    "<b>%{text}</b><br><br>",
-                    #"Number Employed: %{marker.size:,}",
-                    "<extra></extra>"
-                  )
-                  )
-          
+       #-------------------   
+          # good %>% select(word,id,predicted,true) %>% 
+          #   bind_cols(
+          #     as_tibble(
+          #       umap(good  %>% select(-word,-id,-predicted,-true) ,y = as.factor(.$true), 
+          #            n_neighbors = 15, learning_rate = 0.5, init = "random", n_components = 2)
+          #     )
+          #   ) %>%
+          #   ggplot(aes(V1,V2)) +
+          #   geom_point(aes(color = predicted, shape = true)) -> umap_plot2
+          # ggplotly(umap_plot2) 
+          # 
+          # 
+          # good %>% select(word,id,predicted,true) %>% 
+          #   bind_cols(
+          #     as_tibble(
+          #       umap(good  %>% select(-word,-id,-predicted,-true) ,y = as.factor(.$true), 
+          #            n_neighbors = 15, learning_rate = 0.5, init = "random", n_components = 3)
+          #     )
+          #   ) %>%
+          #   mutate(category = paste0(predicted," | ", true)) %>%
+          # plot_ly(data = ., x=~V1, y=~V2, z=~V3, type="scatter3d", mode="markers", size = 1,  color=~category,  text = ~category , 
+          #         hovertemplate = paste(
+          #           "<b>%{text}</b><br><br>",
+          #           #"Number Employed: %{marker.size:,}",
+          #           "<extra></extra>"
+          #         )
+          #         )
+          # 
       # mutate(word,id,predicted,true, 
       #            umap(.  %>% select(-word,-id,-predicted,-true), n_neighbors = 5, learning_rate = 0.5, init = "random") )
     
@@ -619,19 +634,23 @@ train_cross_validate <- function(dane, flagi, ... ) {
     #     
     #   )
     #--------------------------------------------------
-    confusion_matrix_plot(model, valid_X, valid_target, train_data ) -> confusion_matrix_list[[f]]
-    #model -> model_list[[f]]
-    {plot(history) + 
+    png(paste0("confusion_matrix_fold_", f), height = 900, width = 800)      
+    confusion_matrix_plot(model, valid_X, valid_target, train_data, f ) #-> confusion_matrix_list[[f]]
+    dev.off()
+    model -> model_list[[f]]
+    {plot(history_list[[f]]) + 
         ggtitle("Learning History") +
         theme_minimal() +
-        theme(legend.position = "none") 
-    } %>%
-      ggplotly() -> plot_list[[f]]
+        theme(legend.position = "none") +
+        ggtitle(paste0("Learning on fold ", f))
+    } -> plot_list[[f]]
+      #ggplotly() -> plot_list[[f]]
     #plot(history) -> plot_list[[f]]
     #history -> history_list[[f]]
     #cat("#################################### \n")
     #accuracy_list[[f]] %>% print()
     #cat("#################################### \n")
+    cat("#################################### \n")
     progress$tick()$print()
     k_clear_session()
     # reset_states(model)
@@ -643,10 +662,36 @@ train_cross_validate <- function(dane, flagi, ... ) {
 }
 train_cross_validate(dane = DATA_tokenized, flagi) -> analisis
 #write_rds(analisis, "analisis.rds")
-read_rds("analisis.rds") -> analisis
+#read_rds("analisis.rds") -> analisis
 
-analisis$metrics %>% str()
 
+analisis$history[[1]]$metrics$val_acc %>% max()
+
+
+plot_folds_acc <- function(analisis) {
+  analisis$history %>%
+    map_dbl(~.$metrics$val_acc %>% max()) %>%
+    enframe(name = NULL) %>%
+    summarise(mean_val_acc = mean(value),
+              sd_val_acc = sd(value)) -> title
+  
+  title %<>%  apply(. , 2, round, digits = 3) 
+  
+  p_title <- ggdraw() + 
+    draw_label(paste0("val_acc = ",title["mean_val_acc"], " +/- ", title["sd_val_acc"]) , size = 12, fontface = "bold")
+  
+  analisis$plots %>% cowplot::plot_grid(plotlist = ., p_title) %>%
+    return(.)
+}
+
+plot_folds_acc(analisis)
+
+
+analisis$cv_prediction[[1]] %>% reverse_one_hot()
+
+
+analisis$cv_prediction %>%
+  map(~reverse_one_hot(.x))
 
 #################################
 analisis$metrics[[1]] %>% str()
