@@ -380,7 +380,7 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
       column.title = "Reference", title = paste0("Confusion Matrix fold ", f) ,
       legend = F)
 }
-train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 32,  ... ) {
+train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 256,  ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
  # list() -> accuracy_list
   list() -> plot_list
@@ -446,11 +446,11 @@ train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 32,  ... ) {
         patience = 4,
         restore_best_weights = T
       ),  
-      # callback_model_checkpoint(
-      #   filepath = "my_model.h5", 
-      #   monitor = "val_acc",
-      #   save_best_only = TRUE  
-      # ),
+      callback_model_checkpoint(
+        filepath = paste0("model_fold_", f , ".h5"),
+        monitor = "val_acc",
+        save_best_only = TRUE
+      ),
       callback_reduce_lr_on_plateau(
         monitor = "val_acc",
         min_delta = 0.01,
@@ -634,10 +634,14 @@ train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 32,  ... ) {
     #     
     #   )
     #--------------------------------------------------
+    # CONFUSION MATRIX ACTS AS SIDE EFFECT
     png(paste0("confusion_matrix_fold_", f), height = 900, width = 800)      
     confusion_matrix_plot(model, valid_X, valid_target, train_data, f ) #-> confusion_matrix_list[[f]]
     dev.off()
-    model -> model_list[[f]]
+    #----------------------------------------------
+    # save model to h5 file
+    paste0("model_fold_", f , ".h5") -> model_list[[f]]
+    #----------------------------------------------
     {plot(history_list[[f]]) + 
         ggtitle("Learning History") +
         theme_minimal() +
@@ -692,7 +696,7 @@ plot_folds_acc(analisis)
 
 # analisis$cv_prediction %>%
 #   map(~reverse_one_hot(.x))
-
+analisis$model[[1]]
 
 plot_confusion <- function() {
   plot_confusion_iterator <- function(i) {
