@@ -49,7 +49,7 @@ data_load <- function(i, ...) {
 lapply(1:length(categories), function(i) data_load(i) )  %>% bind_rows() -> DATA
 DATA %<>% mutate(text = map_chr(text, unlist ))
 set.seed(1)
-sample(1:nrow(DATA), nrow(DATA)*0.1) -> test_index
+sample(1:nrow(DATA), nrow(DATA)*0.2) -> test_index
 DATA[-test_index, ] -> train_set
 DATA[test_index, ] -> test_set
 #--------------------------------------------
@@ -57,8 +57,10 @@ DATA[test_index, ] -> test_set
 #   preprocess() -> zbior
 # 
 #--------------------------------------------------
+folds <- 10
+
 preprocess <- function(DATA,
-                       variable = "main", no_folds = 5) {
+                       variable = "main", no_folds = folds) {
   ################
   # HELPER FUNCTIONS
   remove_and_split <- function(DATA, ...) {
@@ -368,6 +370,7 @@ cv_predict <- function(model, valid_X,
     return(.)
 }
 confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
+  
   cv_predict(model, valid_X, train_data ) -> cross_validation_pred
   confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
   confuse_a_cat %>%
@@ -696,21 +699,20 @@ plot_folds_acc(analisis)
 
 # analisis$cv_prediction %>%
 #   map(~reverse_one_hot(.x))
-analisis$model[[1]]
+#analisis$model[[1]]
 
-plot_confusion <- function() {
+plot_confusion <- function(folds, png_path = "confusion_matrix_fold_") {
   plot_confusion_iterator <- function(i) {
-     cowplot::ggdraw() + cowplot::draw_image(paste0("confusion_matrix_fold_", i), scale = 0.9) %>%
+     cowplot::ggdraw() + cowplot::draw_image(paste0(png_path , i), scale = 1) %>%
       return(.)
   }
-  lapply(1:5, function(i) plot_confusion_iterator(i)) %>%
+  lapply(1:folds, function(i) plot_confusion_iterator(i)) %>%
     return(.)
 }
-plot_confusion() -> confusion_matrix_list
-confusion_matrix_list %>%
-  cowplot::plot_grid(plotlist = ., ncol = 2)
-
-
+plot_confusion(folds = folds) -> confusion_matrix_list
+confusion_matrix_list
+# confusion_matrix_list %>%
+#   cowplot::plot_grid(plotlist = ., ncol = 2) dont see a thing
 #################################
 # analisis$metrics[[1]] %>% str()
 # analisis$plots[[1]]
@@ -720,25 +722,47 @@ test_set %>%
   preprocess( variable = "main") %>%
   tokenize_text(is_test = T) -> test_tokenized
 
-model_performace  <- function(test_tokenized, model) {
-  test_tokenized %>%
-    select(contains("target")) %>%
-    data.matrix() -> test_target
+models_performance_test  <- function(test_tokenized, analisis) {
+  model_performace  <- function(test_tokenized, model, i) {
+    test_tokenized %>%
+      select(contains("target")) %>%
+      data.matrix() -> test_target
+    
+    test_tokenized %>%
+      select(-one_of(test_target %>% colnames())) %>%
+      data.matrix() -> test_X
   
-  test_tokenized %>%
-    select(-one_of(test_target %>% colnames())) %>%
-    data.matrix() -> test_X
+    load_model_hdf5(model) -> model
+    
+    
+    png(paste0("confusion_matrix_test", i), height = 900, width = 800)      
+    confusion_matrix_plot(model, test_X, test_target, test_target, f = paste0("TEST_", i))
+    dev.off()
+    
+    model %>%
+      # load_model_weights_hdf5("my_model.h5") %>%
+      evaluate(test_X, test_target) %>%
+      as_tibble() %>%
+      return(.)
+  }
+  analisis$model %>% length() -> how_many_models
+  map_df(1:how_many_models, function(i) model_performace(test_tokenized, analisis$model[[i]], i) ) -> elo
+  elo %>%
+    select(acc) %>%
+    summarise(mean_acc = round(mean(acc), 3),
+              sd_acc = round(sd(acc), 3)) -> aggregated_performance
   
-  confusion_matrix_plot(model, test_X, test_target, test_target)
-  
-  model %>%
-    # load_model_weights_hdf5("my_model.h5") %>%
-    evaluate(test_X, test_target) %>%
-    as_tibble() %>%
-    return(.)
+  cat("Test set accuracy: ", aggregated_performance$mean_acc , " +/- ", aggregated_performance$sd_acc)
 }
-model_performace(test_tokenized, analisis$model[[1]]) #0.973
-model_performace(test_tokenized, model)
+models_performance_test(test_tokenized, analisis)
+plot_confusion(folds = folds, png_path = "confusion_matrix_test") -> confusion_matrix_list_test
+confusion_matrix_list_test
+#model_performace(test_tokenized, analisis$model[[1]]) #0.973
+#model_performace(test_tokenized, model)
+
+
+  
+
 ############################
 #tf-idf
 ############################
