@@ -385,7 +385,7 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
       column.title = "Reference", title = paste0("Confusion Matrix fold ", f) ,
       legend = F)
 }
-train_cross_validate <- function(dane, flagi, epoczki = 12, bacz = 16,  ... ) {
+train_cross_validate <- function(dane, flagi, epoczki = 12, bacz = 32,  ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
  # list() -> accuracy_list
   list() -> plot_list
@@ -767,7 +767,7 @@ confusion_matrix_list_test
 analisis$model[[1]] %>%
   load_model_hdf5() -> trained_model
 
-naive_ensemble_model_performace  <- function(test_tokenized, model) {
+predict_per_model  <- function(test_tokenized, model) {
   test_tokenized %>%
     select(contains("target")) %>%
     data.matrix() -> test_target
@@ -780,13 +780,13 @@ naive_ensemble_model_performace  <- function(test_tokenized, model) {
 
   model %>%
     # load_model_weights_hdf5("my_model.h5") %>%
-    predict(test_X, test_target) %>%
+    predict(test_X) %>%
     as_tibble() %>%
     return(.)
 }
 map_df(1:length(analisis$model), function(i) naive_ensemble_model_performace(test_tokenized, analisis$model[[i]]) ) -> elo
   
-naive_ensemble_model_performace(test_tokenized , analisis$model[[1]], 1)
+predict_per_model(test_tokenized , analisis$model[[1]])
 ############################
 #tf-idf
 ############################
