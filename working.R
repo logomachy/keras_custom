@@ -33,7 +33,7 @@ plan(multisession)
 # sess$run(const)
 
 #-----------
-setwd("bbc/")
+setwd("bbc/") # bbc containing categories folders
 #-------------
 list.dirs() %>% stringr::str_remove_all("\\.") %>% stringr::str_remove_all("/") %>%
   .[ str_length(.) > 0 ] -> categories
@@ -218,21 +218,23 @@ embeddings_index <- new.env(hash = T,
                             parent = emptyenv() )
 cat("Loading embedding... \n")
 p <- progress_estimated(length(lines))
-###############################
 options(expressions = 5e5)
 tictoc::tic()
 for (i in 1:length(lines)) {
   line <- lines[[i]]
   values <- strsplit(line, " ")[[1]]
   word <- values[[1]]
-  embeddings_index[[word]] <- as.double(values[-1])
+  #------
+    if(word %in% names(word_index) ) {
+      embeddings_index[[word]] <- as.double(values[-1])
+    }
   p$tick()$print()
-  #if(i %% 1e5 == 0) {gc()}
 }#56.39
 tictoc::toc()
 ###################
 names(embeddings_index) %>% tail()
-embeddings_index[["mayberg"]]
+embeddings_index[["trump"]] # check
+#--------------------------------------
 ###################################
 # 
 # embeddings_index2 <- new.env(hash = T,
@@ -383,7 +385,7 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
       column.title = "Reference", title = paste0("Confusion Matrix fold ", f) ,
       legend = F)
 }
-train_cross_validate <- function(dane, flagi, epoczki = 10, bacz = 256,  ... ) {
+train_cross_validate <- function(dane, flagi, epoczki = 12, bacz = 16,  ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
  # list() -> accuracy_list
   list() -> plot_list
@@ -762,9 +764,29 @@ confusion_matrix_list_test
 #model_performace(test_tokenized, analisis$model[[1]]) #0.973
 #model_performace(test_tokenized, model)
 
+analisis$model[[1]] %>%
+  load_model_hdf5() -> trained_model
 
+naive_ensemble_model_performace  <- function(test_tokenized, model) {
+  test_tokenized %>%
+    select(contains("target")) %>%
+    data.matrix() -> test_target
   
+  test_tokenized %>%
+    select(-one_of(test_target %>% colnames())) %>%
+    data.matrix() -> test_X
+  
+  load_model_hdf5(model) -> model
 
+  model %>%
+    # load_model_weights_hdf5("my_model.h5") %>%
+    predict(test_X, test_target) %>%
+    as_tibble() %>%
+    return(.)
+}
+map_df(1:length(analisis$model), function(i) naive_ensemble_model_performace(test_tokenized, analisis$model[[i]]) ) -> elo
+  
+naive_ensemble_model_performace(test_tokenized , analisis$model[[1]], 1)
 ############################
 #tf-idf
 ############################
