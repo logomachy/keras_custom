@@ -763,9 +763,9 @@ plot_confusion(folds = folds, png_path = "confusion_matrix_test") -> confusion_m
 confusion_matrix_list_test
 #model_performace(test_tokenized, analisis$model[[1]]) #0.973
 #model_performace(test_tokenized, model)
-
-analisis$model[[1]] %>%
-  load_model_hdf5() -> trained_model
+# 
+# analisis$model[[1]] %>%
+#   load_model_hdf5() -> trained_model
 
 predict_per_model  <- function(test_tokenized, model) {
   test_tokenized %>%
@@ -784,9 +784,22 @@ predict_per_model  <- function(test_tokenized, model) {
     as_tibble() %>%
     return(.)
 }
-map_df(1:length(analisis$model), function(i) naive_ensemble_model_performace(test_tokenized, analisis$model[[i]]) ) -> elo
+map(1:length(analisis$model), function(i) predict_per_model(test_tokenized, analisis$model[[i]]) ) -> predicted_test
   
-predict_per_model(test_tokenized , analisis$model[[1]])
+elo[[1]] %>% mutate(model = 1)
+
+naive_iterator <- function(i, ...) {
+  predicted_test %>% map(~ with( list(...), .[i, ] ))  %>%
+    bind_rows() %>%
+    colMeans() %>%
+    t() %>%
+    as_tibble() %>%
+    return(.)
+}
+map(1:nrow(predicted_test[[1]]), function(i) naive_iterator( i) ) -> naive_ensemble_prediction
+naive_ensemble_prediction %<>% bind_rows()
+
+
 ############################
 #tf-idf
 ############################
