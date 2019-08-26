@@ -385,7 +385,7 @@ confusion_matrix_plot <- function(model, valid_X, valid_target, train_data, f) {
       column.title = "Reference", title = paste0("Confusion Matrix fold ", f) ,
       legend = F)
 }
-train_cross_validate <- function(dane, flagi, epoczki = 12, bacz = 32,  ... ) {
+train_cross_validate <- function(dane, flagi, epoczki = 12, bacz = 16,  ... ) {
   progress <- progress_estimated((unique(dane$fold) %>% max()))
  # list() -> accuracy_list
   list() -> plot_list
@@ -573,9 +573,10 @@ train_cross_validate <- function(dane, flagi, epoczki = 12, bacz = 32,  ... ) {
     progress$tick()$print()
     k_clear_session()
     # reset_states(model)
-    
-        valid_target %>%
-      reverse_one_hot()
+    cross_validation_pred_list[[f]] %<>%
+      mutate(true = valid_target %>% 
+               reverse_one_hot())
+   
   }
   return(list(
     plots = plot_list, history  = history_list, model = model_list,
@@ -727,6 +728,103 @@ confusionMatrix(tmp$predicted, tmp$true) %>%
       row.title = "Prediction",left.label.text.size =  4, bottom.label.text.size  = 4,
       column.title = "Reference", title = paste0("Confusion Matrix Naive ") ,
       legend = F)
+########################################
+#  STACKING
+########################################  
+cross_validation_pred_list  
+library(h2o)
+h2o.init()    
+analisis$cv_prediction %>% 
+  bind_rows() %>%
+  as.h2o(destination_frame = "train_h2o") -> h2o_train
+y <- "true"
+x <- setdiff(h2o.colnames(h2o_train), y)
+
+h2o.xgboost(x, y, training_frame = h2o_train, score_each_iteration = T, seed = 1, nfolds = 10,backend = "gpu",
+            fold_assignment = "Stratified") -> xgb_stacked_model  
+
+#----------------------------------------------
+model_num <- 200
+nfoldie <- 10
+
+search_criteria <- list(strategy = "RandomDiscrete",
+                        max_models = model_num
+                        ,seed = 1)
+
+
+hyper_params_xgb <- list(ntrees = 4:40,
+                         #gamma = c(0, 0.001) ,
+                         learn_rate = c(0.05,0.01, 0.001, 0.0001),
+                         max_depth = c(3,6,8)
+                        #min_child_weight = c(15,30, 50),
+                         #subsample = c(0.85),
+                         #colsample_bytree = c(0.7, 0.6, 0.8),
+                        # colsample_bylevel = c(0.6, 0.7,0.8)
+                        )
+algo <- "xgb"
+namedid_xgb <- paste0(algo,"_", nfoldie, "_",Sys.time() )
+cat(paste0("Learning ",model_num, " XGboost models out of ", expand.grid(hyper_params_xgb ) %>% nrow(), " grid possibilities ... \n"))
+xgb_grid <- h2o.grid(algorithm = "xgboost",
+                     x = x,
+                     y = y,
+                     grid_id = namedid_xgb,
+                     training_frame = h2o_train,
+                    stopping_metric = "mean_per_class_error",
+                    stopping_tolerance = 0.01,
+                    stopping_rounds = 4,
+                    #booster ="dart",
+                    backend = "gpu",
+                     nfolds = nfoldie,
+                     fold_assignment = "Stratified",
+                     seed = 1,
+                     hyper_params = hyper_params_xgb,
+                     search_criteria = search_criteria)
+
+
+
+#-----------
+valid_X -> wrong_df
+valid_target %>% reverse_one_hot()
+
+retokenize  <- function(wrong_df, whats_wrong, word_index, ...) {
+  sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
+  retokenize_iterator  <- function(i, ...) {
+    wrong_df[i, ] %>%
+     # t() %>%
+      as_tibble() %>%
+      left_join(tidy_word_index, by =c("value" = "x" )) %>%
+      left_join(embedding_matrix %>% as_tibble() %>% rowid_to_column(), by = c("value" = "rowid")) %>%
+      select(-value, -names) %>%
+     # as.data.table() %>%
+      lapply(.  , function(x) t(data.frame(x))) %>%
+      as.data.table() %>% dim()
+    
+    
+    # %>%
+    #   rowid_to_column("tmp_id") %>%
+    #   nest(-tmp_id)
+    #   
+    
+    
+    
+    as.data.table(lapply(x, function(x) t(data.frame(x)))) %>% .[1, 1:10]
+    
+    
+      pull(names) %>%
+      replace_na("0") %>%
+      return(.)
+  }
+  map(1:nrow(wrong_df), function(i) as_tibble(t( retokenize_wrong_iterator(i) %>% str_remove_all("0") %>% .[. != ""] %>% toString() )) ) %>%
+    bind_rows() %>%
+    bind_cols(whats_wrong , .) %>%
+    #rename(word = )
+    return(.)
+}
+
+word_index
+embedding_matrix
+  
+  
 #-------------------------------------------------
 #confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
 analisis$wrong
@@ -734,6 +832,8 @@ analisis$cv_prediction
 #---------------------------------
 analisis$wrong[[1]] %>% .$V1 %>%
   str_length()
+#-------------------------------------
+#visualization
 #-------------------------------------
 analisis$wrong[[1]] %>%
   pull(V1) %>%
