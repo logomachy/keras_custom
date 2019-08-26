@@ -780,8 +780,6 @@ xgb_grid <- h2o.grid(algorithm = "xgboost",
                      hyper_params = hyper_params_xgb,
                      search_criteria = search_criteria)
 
-
-
 #-----------
 valid_X -> wrong_df
 valid_target %>% reverse_one_hot()
@@ -794,27 +792,30 @@ retokenize  <- function(wrong_df, whats_wrong, word_index, ...) {
       as_tibble() %>%
       left_join(tidy_word_index, by =c("value" = "x" )) %>%
       left_join(embedding_matrix %>% as_tibble() %>% rowid_to_column(), by = c("value" = "rowid")) %>%
+      # transmute(value, names,
+      #           elo = umap( . %>% select(-value, -names), n_neighbors = 4))
       select(-value, -names) %>%
      # as.data.table() %>%
       lapply(.  , function(x) t(data.frame(x))) %>%
-      as.data.table() %>% dim()
-    
-    
-    # %>%
-    #   rowid_to_column("tmp_id") %>%
-    #   nest(-tmp_id)
-    #   
-    
-    
-    
-    as.data.table(lapply(x, function(x) t(data.frame(x)))) %>% .[1, 1:10]
-    
-    
-      pull(names) %>%
-      replace_na("0") %>%
+      as.data.table() %>%
       return(.)
+    
+    
+    # # %>%
+    # #   rowid_to_column("tmp_id") %>%
+    # #   nest(-tmp_id)
+    # #   
+    # 
+    # 
+    # 
+    # as.data.table(lapply(x, function(x) t(data.frame(x)))) %>% .[1, 1:10]
+    # 
+    # 
+    #   pull(names) %>%
+    #   replace_na("0") %>%
+    #   return(.)
   }
-  map(1:nrow(wrong_df), function(i) as_tibble(t( retokenize_wrong_iterator(i) %>% str_remove_all("0") %>% .[. != ""] %>% toString() )) ) %>%
+  map(1:nrow(wrong_df), function(i)  retokenize_iterator(i)  ) %>%
     bind_rows() %>%
     bind_cols(whats_wrong , .) %>%
     #rename(word = )
@@ -880,15 +881,15 @@ truncate_at <- function(wrong_var,  max_len ) {
     # good %>%
 
     #
-       # good %>% select(word,id,predicted,true) %>%
-       #   bind_cols(
-       #     as_tibble(
-       #       umap(good  %>% select(-word,-id,-predicted,-true) , n_neighbors = 3, learning_rate = 0.05, init = "random", n_components = 2)
-       #       )
-       #     ) %>%
-       #   ggplot(aes(V1,V2)) +
-       #    geom_point(aes(color = predicted, shape = true)) -> umap_plot
-       #    ggplotly(umap_plot)
+       good %>% select(word,id,predicted,true) %>%
+         bind_cols(
+           as_tibble(
+             umap(good  %>% select(-word,-id,-predicted,-true) , n_neighbors = 3, learning_rate = 0.05, init = "random", n_components = 2)
+             )
+           ) %>%
+         ggplot(aes(V1,V2)) +
+          geom_point(aes(color = predicted, shape = true)) -> umap_plot
+          ggplotly(umap_plot)
        # 
        #    good  %>%
        #      group_by( id) %>%
