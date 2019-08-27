@@ -684,7 +684,7 @@ confusion_matrix_list_test
 predict_per_model  <- function(test_tokenized, model) {
   test_tokenized %>%
     select(contains("target")) %>%
-    data.matrix() -> test_target
+    data.matrix() ->> test_target
   
   test_tokenized %>%
     select(-one_of(test_target %>% colnames())) %>%
