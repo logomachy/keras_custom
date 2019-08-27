@@ -681,10 +681,20 @@ confusion_matrix_list_test
 # analisis$model[[1]] %>%
 #   load_model_hdf5() -> trained_model
 
+# test_tokenized %>%
+#   select(contains("target")) %>%
+#   data.matrix() %>% head() -> sample_colname
+
+#tmp just for naive ensemble prediction
+test_tokenized %>%
+  select(contains("target")) %>%
+  data.matrix() -> test_target
+#-------
+
 predict_per_model  <- function(test_tokenized, model) {
   test_tokenized %>%
     select(contains("target")) %>%
-    data.matrix() ->> test_target
+    data.matrix() -> test_target
   
   test_tokenized %>%
     select(-one_of(test_target %>% colnames())) %>%
