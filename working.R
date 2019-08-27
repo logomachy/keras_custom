@@ -700,7 +700,7 @@ predict_per_model  <- function(test_tokenized, model) {
 }
 map(1:length(analisis$model), function(i) predict_per_model(test_tokenized, analisis$model[[i]]) ) -> predicted_test
   
-elo[[1]] %>% mutate(model = 1)
+#elo[[1]] %>% mutate(model = 1)
 
 naive_iterator <- function(i, ...) {
   predicted_test %>% map(~ with( list(...), .[i, ] ))  %>%
@@ -781,115 +781,115 @@ xgb_grid <- h2o.grid(algorithm = "xgboost",
                      search_criteria = search_criteria)
 
 #-----------
-valid_X -> wrong_df
-valid_target %>% reverse_one_hot()
-
-retokenize  <- function(wrong_df, whats_wrong, word_index, ...) {
-  sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
-  retokenize_iterator  <- function(i, ...) {
-    wrong_df[i, ] %>%
-     # t() %>%
-      as_tibble() %>%
-      left_join(tidy_word_index, by =c("value" = "x" )) %>%
-      left_join(embedding_matrix %>% as_tibble() %>% rowid_to_column(), by = c("value" = "rowid")) %>%
-      # transmute(value, names,
-      #           elo = umap( . %>% select(-value, -names), n_neighbors = 4))
-      select(-value, -names) %>%
-     # as.data.table() %>%
-      lapply(.  , function(x) t(data.frame(x))) %>%
-      as.data.table() %>%
-      return(.)
-    
-    
-    # # %>%
-    # #   rowid_to_column("tmp_id") %>%
-    # #   nest(-tmp_id)
-    # #   
-    # 
-    # 
-    # 
-    # as.data.table(lapply(x, function(x) t(data.frame(x)))) %>% .[1, 1:10]
-    # 
-    # 
-    #   pull(names) %>%
-    #   replace_na("0") %>%
-    #   return(.)
-  }
-  map(1:nrow(wrong_df), function(i)  retokenize_iterator(i)  ) %>%
-    bind_rows() %>%
-    bind_cols(whats_wrong , .) %>%
-    #rename(word = )
-    return(.)
-}
-
-word_index
-embedding_matrix
-  
-  
-#-------------------------------------------------
-#confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
-analisis$wrong
-analisis$cv_prediction  
-#---------------------------------
-analisis$wrong[[1]] %>% .$V1 %>%
-  str_length()
-#-------------------------------------
-#visualization
-#-------------------------------------
-analisis$wrong[[1]] %>%
-  pull(V1) %>%
-  str_trunc(max_len)
-
-truncate_at <- function(wrong_var,  max_len ) {
-   wrong_var %>% 
-    str_trunc(max_len) %>%
-    return(.)
-}
-
-
-    # to do show embedding per id
-
-    analisis$wrong[[1]] %>%
-      mutate(V1 = truncate_at(V1, max_len)) %>%
-      unnest_tokens(word, V1 ) -> unnested_wrong
-
-
-    find_emb  <- function(term_freq_df, embeddings_index, i,  ...) {
-      tibble(word = term_freq_df$word[i]) %>%
-        bind_cols(as_tibble(as_tibble(embeddings_index[[term_freq_df$word[i]]]) %>% t())) %>%
-        return(.)
-    }
-
-    map_df(1:nrow(unnested_wrong), function(i) find_emb(unnested_wrong, embeddings_index, i) ) %>%
-      right_join(unnested_wrong, by = "word")  %>% select(word, id, predicted, true, everything()) -> data_after_emb
-
-    #-------------------------------------
-    #data_after_emb[is.na(data_after_emb) %>% which(arr.ind = T)]
-
-    #data_after_emb  %>% .[is.na(data_after_emb) %>% which(arr.ind = T)]
-
-     # data_after_emb[!duplicated(data_after_emb), ] %>%
-     # distinct_if(grep("Sepal|Petal", colnames(.)))
-
-
-     #select(-word,-id,-predicted, -true) %>% .[!duplicated(.), ] -> not_duplicated
-    #--------------------------------------
-
-     data_after_emb %>%
-       distinct_at(. ,vars(paste0("V",1:ncol(data_after_emb %>% select(-word,-id,-predicted,-true)))) ,.keep_all = TRUE) -> good
-     good[is.na(good)] <- 0
-    # good %>%
-
-    #
-       good %>% select(word,id,predicted,true) %>%
-         bind_cols(
-           as_tibble(
-             umap(good  %>% select(-word,-id,-predicted,-true) , n_neighbors = 3, learning_rate = 0.05, init = "random", n_components = 2)
-             )
-           ) %>%
-         ggplot(aes(V1,V2)) +
-          geom_point(aes(color = predicted, shape = true)) -> umap_plot
-          ggplotly(umap_plot)
+# valid_X -> wrong_df
+# valid_target %>% reverse_one_hot()
+# 
+# retokenize  <- function(wrong_df, whats_wrong, word_index, ...) {
+#   sapply(word_index, function(x){as.numeric(x[1])}) %>% broom::tidy() -> tidy_word_index
+#   retokenize_iterator  <- function(i, ...) {
+#     wrong_df[i, ] %>%
+#      # t() %>%
+#       as_tibble() %>%
+#       left_join(tidy_word_index, by =c("value" = "x" )) %>%
+#       left_join(embedding_matrix %>% as_tibble() %>% rowid_to_column(), by = c("value" = "rowid")) %>%
+#       # transmute(value, names,
+#       #           elo = umap( . %>% select(-value, -names), n_neighbors = 4))
+#       select(-value, -names) %>%
+#      # as.data.table() %>%
+#       lapply(.  , function(x) t(data.frame(x))) %>%
+#       as.data.table() %>%
+#       return(.)
+#     
+#     
+#     # # %>%
+#     # #   rowid_to_column("tmp_id") %>%
+#     # #   nest(-tmp_id)
+#     # #   
+#     # 
+#     # 
+#     # 
+#     # as.data.table(lapply(x, function(x) t(data.frame(x)))) %>% .[1, 1:10]
+#     # 
+#     # 
+#     #   pull(names) %>%
+#     #   replace_na("0") %>%
+#     #   return(.)
+#   }
+#   map(1:nrow(wrong_df), function(i)  retokenize_iterator(i)  ) %>%
+#     bind_rows() %>%
+#     bind_cols(whats_wrong , .) %>%
+#     #rename(word = )
+#     return(.)
+# }
+# 
+# #word_index
+# #embedding_matrix
+#   
+#   
+# #-------------------------------------------------
+# #confusionMatrix(data=  reverse_one_hot(cross_validation_pred),  reference = reverse_one_hot(valid_target)) -> confuse_a_cat
+# analisis$wrong
+# analisis$cv_prediction  
+# #---------------------------------
+# analisis$wrong[[1]] %>% .$V1 %>%
+#   str_length()
+# #-------------------------------------
+# #visualization
+# #-------------------------------------
+# analisis$wrong[[1]] %>%
+#   pull(V1) %>%
+#   str_trunc(max_len)
+# 
+# truncate_at <- function(wrong_var,  max_len ) {
+#    wrong_var %>% 
+#     str_trunc(max_len) %>%
+#     return(.)
+# }
+# 
+# 
+#     # to do show embedding per id
+# 
+#     analisis$wrong[[1]] %>%
+#       mutate(V1 = truncate_at(V1, max_len)) %>%
+#       unnest_tokens(word, V1 ) -> unnested_wrong
+# 
+# 
+#     find_emb  <- function(term_freq_df, embeddings_index, i,  ...) {
+#       tibble(word = term_freq_df$word[i]) %>%
+#         bind_cols(as_tibble(as_tibble(embeddings_index[[term_freq_df$word[i]]]) %>% t())) %>%
+#         return(.)
+#     }
+# 
+#     map_df(1:nrow(unnested_wrong), function(i) find_emb(unnested_wrong, embeddings_index, i) ) %>%
+#       right_join(unnested_wrong, by = "word")  %>% select(word, id, predicted, true, everything()) -> data_after_emb
+# 
+#     #-------------------------------------
+#     #data_after_emb[is.na(data_after_emb) %>% which(arr.ind = T)]
+# 
+#     #data_after_emb  %>% .[is.na(data_after_emb) %>% which(arr.ind = T)]
+# 
+#      # data_after_emb[!duplicated(data_after_emb), ] %>%
+#      # distinct_if(grep("Sepal|Petal", colnames(.)))
+# 
+# 
+#      #select(-word,-id,-predicted, -true) %>% .[!duplicated(.), ] -> not_duplicated
+#     #--------------------------------------
+# 
+#      data_after_emb %>%
+#        distinct_at(. ,vars(paste0("V",1:ncol(data_after_emb %>% select(-word,-id,-predicted,-true)))) ,.keep_all = TRUE) -> good
+#      good[is.na(good)] <- 0
+#     # good %>%
+# 
+#     #
+#        good %>% select(word,id,predicted,true) %>%
+#          bind_cols(
+#            as_tibble(
+#              umap(good  %>% select(-word,-id,-predicted,-true) , n_neighbors = 3, learning_rate = 0.05, init = "random", n_components = 2)
+#              )
+#            ) %>%
+#          ggplot(aes(V1,V2)) +
+#           geom_point(aes(color = predicted, shape = true)) -> umap_plot
+#           ggplotly(umap_plot)
        # 
        #    good  %>%
        #      group_by( id) %>%
